@@ -26,17 +26,28 @@ def legacy_columns(database: sqlite3.Connection, table: str) -> set[str]:
 def is_legacy_archive_scout(path: Path) -> bool:
     if not path.exists():
         return False
+
+    database = None
+
     try:
         database = sqlite3.connect(path)
-        tables = {row[0] for row in database.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        tables = {
+            row[0]
+            for row in database.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+
         if "captures" not in tables or "schema_info" in tables:
-            database.close()
             return False
+
         columns = legacy_columns(database, "captures")
-        database.close()
         return "original" in columns and "timestamp" in columns
     except Exception:
         return False
+    finally:
+        if database is not None:
+            database.close()
 
 
 def migrate_legacy_project(root: Path) -> Path:
