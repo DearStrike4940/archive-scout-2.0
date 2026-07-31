@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest an Archive Scout improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Research problem
+      description: Explain the archive-research problem this feature would solve.
+    validations:
+      required: true
+  - type: textarea
+    id: feature
+    attributes:
+      label: Proposed feature
+    validations:
+      required: true
