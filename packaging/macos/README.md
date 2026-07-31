@@ -1,0 +1,1 @@
+The universal macOS application is built by `scripts/build_macos.sh` on an Intel GitHub-hosted macOS runner using a Universal2 Python installation. The DMG contains the application and an Applications-folder shortcut.
