@@ -11,13 +11,20 @@ DATABASE_NAME = "archive_scout.sqlite3"
 def is_v2_database(path: Path) -> bool:
     if not path.exists():
         return False
+
+    database = None
+
     try:
         database = sqlite3.connect(path)
-        row = database.execute("SELECT version FROM schema_info LIMIT 1").fetchone()
-        database.close()
+        row = database.execute(
+            "SELECT version FROM schema_info LIMIT 1"
+        ).fetchone()
         return bool(row and int(row[0]) == 2)
     except Exception:
         return False
+    finally:
+        if database is not None:
+            database.close()
 
 
 def open_database(root: Path, migrate: bool = True) -> sqlite3.Connection:
