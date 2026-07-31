@@ -1,0 +1,12 @@
+Archive Scout 2.0.0-alpha.1 source validation
+
+- Python source compiled successfully with compileall.
+- 13 unit, migration, and integration tests passed.
+- Mocked CDX -> download -> scan -> rescan -> report workflow passed.
+- Version 1 database backup and migration test passed.
+- Error-only retry routing test passed.
+- Project integrity report test passed.
+- GitHub Actions workflow YAML parsed successfully.
+- Linux and macOS shell scripts passed bash syntax checks.
+
+Platform-specific PyInstaller packages must still be built and tested through GitHub Actions on Windows, Linux, and macOS.
