@@ -1,11 +1,13 @@
-ARCHIVE SCOUT 2.0 REPOSITORY UPLOAD CHECKLIST
+ARCHIVE SCOUT ALPHA 2 UPLOAD CHECKLIST
 
-1. Create one new public GitHub repository.
-2. Upload every file and folder in this repository.
-3. Confirm the hidden .github folder and both workflows are present.
-4. Open Actions and run Tests.
-5. Open Actions and run Build All Platforms.
-6. Download and test all three build artifacts.
-7. Create the tag v2.0.0-alpha.1 only after all three packages work.
-8. Confirm the GitHub Release contains the Windows ZIP, Linux TAR.GZ, macOS DMG, and checksum files.
-9. Test each README download link while signed out of GitHub.
+1. Extract the repository ZIP.
+2. Open the archive-scout-2.0-alpha2 folder.
+3. Reveal hidden files with Command + Shift + . on macOS.
+4. Upload the CONTENTS of that folder to the repository root.
+5. Confirm .github/workflows is present.
+6. Confirm requirements-runtime.txt and requirements-build.txt are at the root.
+7. Run the Tests workflow.
+8. Run Build All Platforms.
+9. Smoke-test the generated package.
+10. Publish tag v2.0.0-alpha.2.
+11. Confirm all three release downloads and checksum files are public.
