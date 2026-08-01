@@ -24,42 +24,63 @@ def get_or_create_target(database: sqlite3.Connection, pattern: str, settings: d
     return int(cursor.lastrowid)
 
 
-def upsert_capture(database: sqlite3.Connection, row: dict[str, str], target_id: int, query_signature: str) -> bool:
-    existing = database.execute(
-        "SELECT id FROM captures WHERE original_url=? AND timestamp=? AND query_signature=?",
-        (row["original"], row["timestamp"], query_signature),
-    ).fetchone()
+def _capture_values(
+    row: dict[str, str],
+    target_id: int,
+    query_signature: str,
+    now: str,
+) -> tuple:
+    return (
+        row["original"],
+        row["timestamp"],
+        target_id,
+        query_signature,
+        row.get("mimetype", ""),
+        row.get("statuscode", ""),
+        row.get("digest", ""),
+        int(row.get("length") or 0),
+        "pending",
+        now,
+        now,
+    )
+
+
+def upsert_captures(
+    database: sqlite3.Connection,
+    rows: list[dict[str, str]],
+    target_id: int,
+    query_signature: str,
+) -> int:
+    if not rows:
+        return 0
     now = utc_now()
-    if existing:
-        database.execute(
-            """
-            UPDATE captures SET target_id=?,mimetype=?,statuscode=?,digest=?,length=?,updated_at=?
-            WHERE id=?
-            """,
-            (
-                target_id,
-                row.get("mimetype", ""),
-                row.get("statuscode", ""),
-                row.get("digest", ""),
-                int(row.get("length") or 0),
-                now,
-                existing["id"],
-            ),
-        )
-        return False
-    database.execute(
+    values = [_capture_values(row, target_id, query_signature, now) for row in rows]
+    before = database.total_changes
+    database.executemany(
         """
         INSERT INTO captures(
             original_url,timestamp,target_id,query_signature,mimetype,statuscode,digest,length,state,created_at,updated_at
         ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(original_url,timestamp,query_signature) DO UPDATE SET
+            target_id=excluded.target_id,
+            mimetype=excluded.mimetype,
+            statuscode=excluded.statuscode,
+            digest=excluded.digest,
+            length=excluded.length,
+            updated_at=excluded.updated_at
         """,
-        (
-            row["original"], row["timestamp"], target_id, query_signature,
-            row.get("mimetype", ""), row.get("statuscode", ""), row.get("digest", ""),
-            int(row.get("length") or 0), "pending", now, now,
-        ),
+        values,
     )
-    return True
+    return database.total_changes - before
+
+
+def upsert_capture(database: sqlite3.Connection, row: dict[str, str], target_id: int, query_signature: str) -> bool:
+    existing = database.execute(
+        "SELECT 1 FROM captures WHERE original_url=? AND timestamp=? AND query_signature=?",
+        (row["original"], row["timestamp"], query_signature),
+    ).fetchone()
+    upsert_captures(database, [row], target_id, query_signature)
+    return existing is None
 
 
 def keyword_fingerprint(keywords: list[str | dict]) -> str:
@@ -431,6 +452,61 @@ def get_or_create_media_target(database: sqlite3.Connection, pattern: str) -> in
     return int(cursor.lastrowid)
 
 
+def upsert_media_captures(
+    database: sqlite3.Connection,
+    items: list[tuple[dict[str, str], str, str]],
+    target_id: int | None,
+    query_signature: str,
+    source_document_id: int | None = None,
+    source_type: str = "cdx",
+) -> int:
+    if not items:
+        return 0
+    now = utc_now()
+    values = [
+        (
+            row["original"],
+            row["timestamp"],
+            target_id,
+            source_document_id,
+            source_type,
+            query_signature,
+            media_kind,
+            extension,
+            row.get("mimetype", ""),
+            row.get("statuscode", ""),
+            row.get("digest", ""),
+            int(row.get("length") or 0),
+            "pending",
+            now,
+            now,
+        )
+        for row, media_kind, extension in items
+    ]
+    before = database.total_changes
+    database.executemany(
+        """
+        INSERT INTO media_captures(
+            original_url,timestamp,target_id,source_document_id,source_type,query_signature,media_kind,extension,
+            mimetype,statuscode,digest,length,state,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(original_url,timestamp,query_signature) DO UPDATE SET
+            target_id=excluded.target_id,
+            source_document_id=COALESCE(excluded.source_document_id,media_captures.source_document_id),
+            source_type=excluded.source_type,
+            media_kind=excluded.media_kind,
+            extension=excluded.extension,
+            mimetype=excluded.mimetype,
+            statuscode=excluded.statuscode,
+            digest=excluded.digest,
+            length=excluded.length,
+            updated_at=excluded.updated_at
+        """,
+        values,
+    )
+    return database.total_changes - before
+
+
 def upsert_media_capture(
     database: sqlite3.Connection,
     row: dict[str, str],
@@ -442,37 +518,18 @@ def upsert_media_capture(
     source_type: str = "cdx",
 ) -> bool:
     existing = database.execute(
-        "SELECT id FROM media_captures WHERE original_url=? AND timestamp=? AND query_signature=?",
+        "SELECT 1 FROM media_captures WHERE original_url=? AND timestamp=? AND query_signature=?",
         (row["original"], row["timestamp"], query_signature),
     ).fetchone()
-    now = utc_now()
-    if existing:
-        database.execute(
-            """
-            UPDATE media_captures SET target_id=?,source_document_id=COALESCE(?,source_document_id),source_type=?,
-                media_kind=?,extension=?,mimetype=?,statuscode=?,digest=?,length=?,updated_at=? WHERE id=?
-            """,
-            (
-                target_id, source_document_id, source_type, media_kind, extension,
-                row.get("mimetype", ""), row.get("statuscode", ""), row.get("digest", ""),
-                int(row.get("length") or 0), now, existing["id"],
-            ),
-        )
-        return False
-    database.execute(
-        """
-        INSERT INTO media_captures(
-            original_url,timestamp,target_id,source_document_id,source_type,query_signature,media_kind,extension,
-            mimetype,statuscode,digest,length,state,created_at,updated_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            row["original"], row["timestamp"], target_id, source_document_id, source_type, query_signature,
-            media_kind, extension, row.get("mimetype", ""), row.get("statuscode", ""), row.get("digest", ""),
-            int(row.get("length") or 0), "pending", now, now,
-        ),
+    upsert_media_captures(
+        database,
+        [(row, media_kind, extension)],
+        target_id,
+        query_signature,
+        source_document_id,
+        source_type,
     )
-    return True
+    return existing is None
 
 
 def save_media_success(

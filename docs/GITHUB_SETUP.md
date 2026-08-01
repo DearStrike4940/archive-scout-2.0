@@ -34,7 +34,7 @@ Open **Actions → Build All Platforms → Run workflow**. A successful manual r
 Publish the tag:
 
 ```text
-v2.0.0-alpha.2
+v2.0.0-alpha.2.1
 ```
 
 The tagged build uploads:

@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.0-alpha.2.1
+
+- Fixed Start silently doing nothing while a previous worker was still shutting down
+- Cleared completed worker references so runs can be restarted reliably
+- Split large annual CDX searches into resumable monthly windows
+- Reduced CDX retries from six long attempts to three bounded attempts
+- Added visible retry reasons, attempt numbers, and wait times to the Activity log
+- Added per-request CDX and database timing to indexing progress
+- Replaced per-capture SELECT/INSERT/UPDATE loops with batched SQLite upserts
+- Applied the same monthly windowing, shorter retry cycle, and batching to direct media indexing
+- Prevented Stop actions from being recorded as indexing failures
+- Prevented failed indexing attempts from creating empty scan runs
+- Prevented identical selected keyword sets from creating duplicate scan jobs
+- Preserved monthly resume progress inside the existing project database format
+- Expanded the automated suite to 29 tests
+
 ## 2.0.0-alpha.2
 
 - Added built-in ranked result viewing, sorting, filtering, snippets, notes, tags, and review labels

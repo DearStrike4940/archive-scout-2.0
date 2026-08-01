@@ -650,8 +650,13 @@ class ArchiveScoutApp(tk.Tk):
         open_path(Path(self.output_var.get()).expanduser() / "reports")
 
     def start(self, override_config: ProjectConfig | None = None, override_mode: str | None = None) -> None:
-        if self.worker_thread and self.worker_thread.is_alive():
-            return
+        if self.worker_thread:
+            if self.worker_thread.is_alive():
+                self.status_var.set("The previous run is still shutting down…")
+                self.log("Start ignored because the previous worker is still active.")
+                messagebox.showinfo(APP_NAME, "The previous run is still active or shutting down. Wait for it to finish, then press Start again.")
+                return
+            self.worker_thread = None
         try:
             config = override_config or self.build_config()
         except ValueError as exc:
@@ -726,6 +731,10 @@ class ArchiveScoutApp(tk.Tk):
         self.after(100, self.process_events)
 
     def finish_run(self) -> None:
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.after(50, self.finish_run)
+            return
+        self.worker_thread = None
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
         self.save_app_state()

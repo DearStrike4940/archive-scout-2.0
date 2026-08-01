@@ -9,6 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from typing import Callable
 from email.utils import parsedate_to_datetime
 
 from ..constants import RETRYABLE_STATUS
@@ -30,12 +31,14 @@ class HttpClient:
         timeout: float,
         user_agent: str,
         stop_event: threading.Event,
+        retry_callback: Callable[[int, int, str, float], None] | None = None,
     ) -> None:
         self.limiter = limiter
         self.retries = retries
         self.timeout = timeout
         self.user_agent = user_agent
         self.stop_event = stop_event
+        self.retry_callback = retry_callback
         self.ssl_context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT) if truststore else ssl.create_default_context()
 
     def get(self, url: str, max_bytes: int, accept: str = "*/*") -> dict:
@@ -90,13 +93,13 @@ class HttpClient:
                     if exc.code == 429:
                         raise RateLimited(f"repeated HTTP 429 for {url}") from exc
                     raise RuntimeError(f"HTTP {exc.code} after {self.retries} attempts: {url}") from exc
-                self.retry_wait(attempt, retry_after)
+                self.retry_wait(attempt, f"HTTP {exc.code}", retry_after)
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 last_error = exc
                 self.limiter.record_failure(None, None)
                 if attempt + 1 == self.retries:
                     raise RuntimeError(f"network failure for {url}: {exc}") from exc
-                self.retry_wait(attempt)
+                self.retry_wait(attempt, str(exc))
         raise RuntimeError(f"request failed for {url}: {last_error}")
 
     def get_json(self, url: str, params: list[tuple[str, str]], max_bytes: int = 64 * 1024 * 1024) -> object:
@@ -111,9 +114,12 @@ class HttpClient:
             preview = clean_space(raw[:500])
             raise RuntimeError(f"CDX returned non-JSON content: {preview}") from exc
 
-    def retry_wait(self, attempt: int, retry_after: float | None = None) -> None:
+    def retry_wait(self, attempt: int, reason: str, retry_after: float | None = None) -> None:
         base = max(float(retry_after or 0), min(120.0, 2**attempt))
-        self.stop_event.wait(base * random.uniform(0.85, 1.2))
+        wait_seconds = base * random.uniform(0.85, 1.2)
+        if self.retry_callback:
+            self.retry_callback(attempt + 2, self.retries, reason, wait_seconds)
+        self.stop_event.wait(wait_seconds)
         if self.stop_event.is_set():
             raise Stopped
 

@@ -9,10 +9,11 @@ from typing import Callable
 from urllib.parse import urlsplit
 
 from ..cdx.client import HttpClient
-from ..cdx.parameters import cdx_year_window, parse_cdx
+from ..cdx.indexer import decode_resume, encode_resume, month_windows
+from ..cdx.parameters import parse_cdx
 from ..config import ProjectConfig
 from ..constants import CDX_URL
-from ..database.repositories import get_or_create_media_target, record_error, resolve_errors, upsert_media_capture
+from ..database.repositories import get_or_create_media_target, record_error, upsert_media_capture, upsert_media_captures
 from ..downloads.rate_limit import AdaptiveRateLimiter
 from ..events import ProgressEvent, Stopped
 from ..utils import json_value, parse_cdx_parameter_lines, utc_now
@@ -94,80 +95,205 @@ def index_direct_media(
     targets = media.targets or config.targets
     extensions = selected_extensions(media)
     tasks = [
-        (target, extension, year, window)
+        (target, extension, year, month_windows(config, year))
         for target in targets
         for extension in extensions
         for year in range(config.from_year, config.to_year + 1)
-        if (window := cdx_year_window(config, year)) is not None
+        if month_windows(config, year)
     ]
-    total = len(tasks)
+    total = sum(len(windows) for _, _, _, windows in tasks)
     completed = 0
-    for target, extension, year, window in tasks:
+
+    def save_media_state(
+        target_id: int,
+        extension: str,
+        year: int,
+        resume_key: str | None,
+        complete: bool,
+        seen: int,
+        error_id: int | None,
+    ) -> None:
+        database.execute(
+            """
+            INSERT INTO media_index_state(
+                target_id,extension,year,query_signature,resume_key,complete,seen,error_id,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(target_id,extension,year,query_signature) DO UPDATE SET
+                resume_key=excluded.resume_key,
+                complete=excluded.complete,
+                seen=excluded.seen,
+                error_id=excluded.error_id,
+                updated_at=excluded.updated_at
+            """,
+            (
+                target_id,
+                extension,
+                year,
+                signature,
+                resume_key,
+                int(complete),
+                seen,
+                error_id,
+                utc_now(),
+            ),
+        )
+
+    for target, extension, year, windows in tasks:
         if stop_event.is_set():
             raise Stopped
         target_id = get_or_create_media_target(database, target)
         state = database.execute(
             """
-            SELECT resume_key,complete,seen FROM media_index_state
+            SELECT resume_key,complete,seen,error_id FROM media_index_state
             WHERE target_id=? AND extension=? AND year=? AND query_signature=?
             """,
             (target_id, extension, year, signature),
         ).fetchone()
         if state and state["complete"]:
-            completed += 1
+            completed += len(windows)
             continue
-        resume = state["resume_key"] if state else None
-        seen = int(state["seen"] or 0) if state else 0
-        start, end = window
-        pattern = media_target_pattern(target, extension)
-        while True:
-            if callback:
-                callback(ProgressEvent("media_index", f"Indexing {pattern} for {year}", completed, total))
-            try:
-                payload = client.get_json(CDX_URL, build_media_params(config, pattern, start, end, resume))
-                rows, next_resume = parse_cdx(payload)
-                inserted = 0
-                with database:
-                    for row in rows:
-                        allowed, kind, actual_extension = allowed_media_url(row["original"], media, row.get("mimetype", ""))
-                        if not allowed or not kind:
-                            continue
-                        inserted += int(upsert_media_capture(
-                            database, row, target_id, signature, kind, actual_extension or extension
-                        ))
-                    seen += len(rows)
-                    database.execute(
-                        """
-                        INSERT INTO media_index_state(target_id,extension,year,query_signature,resume_key,complete,seen,error_id,updated_at)
-                        VALUES(?,?,?,?,?,?,?,NULL,?)
-                        ON CONFLICT(target_id,extension,year,query_signature) DO UPDATE SET
-                            resume_key=excluded.resume_key,complete=excluded.complete,seen=excluded.seen,error_id=NULL,updated_at=excluded.updated_at
-                        """,
-                        (target_id, extension, year, signature, next_resume, 0 if next_resume else 1, seen, utc_now()),
-                    )
-                    resolve_errors(database, operations=("media_index",))
-                if callback:
-                    callback(ProgressEvent("media_index", f"{pattern} {year}: received {len(rows):,}, added {inserted:,}", completed, total))
-            except Exception as exc:
-                with database:
-                    error_id = record_error(database, "media_index", "index_failure", repr(exc), retryable=True)
-                    database.execute(
-                        """
-                        INSERT INTO media_index_state(target_id,extension,year,query_signature,resume_key,complete,seen,error_id,updated_at)
-                        VALUES(?,?,?,?,?,0,?,?,?)
-                        ON CONFLICT(target_id,extension,year,query_signature) DO UPDATE SET
-                            resume_key=excluded.resume_key,complete=0,seen=excluded.seen,error_id=excluded.error_id,updated_at=excluded.updated_at
-                        """,
-                        (target_id, extension, year, signature, resume, seen, error_id, utc_now()),
-                    )
-                raise
-            if not next_resume:
-                break
-            if next_resume == resume:
-                raise RuntimeError("CDX returned the same media resume key twice")
-            resume = next_resume
-        completed += 1
 
+        seen = int(state["seen"] or 0) if state else 0
+        error_id = int(state["error_id"]) if state and state["error_id"] else None
+        saved = decode_resume(state["resume_key"] if state else None)
+        start_index = 0
+        first_resume: str | None = None
+        if saved:
+            saved_start, saved_end, first_resume = saved
+            for index, window in enumerate(windows):
+                if window == (saved_start, saved_end):
+                    start_index = index
+                    break
+        completed += start_index
+        pattern = media_target_pattern(target, extension)
+
+        for window_index in range(start_index, len(windows)):
+            start, end = windows[window_index]
+            resume = first_resume if window_index == start_index else None
+            first_resume = None
+            label = f"{year}-{start[4:6]}"
+
+            while True:
+                if stop_event.is_set():
+                    with database:
+                        save_media_state(
+                            target_id,
+                            extension,
+                            year,
+                            encode_resume(start, end, resume),
+                            False,
+                            seen,
+                            error_id,
+                        )
+                    raise Stopped
+
+                if callback:
+                    callback(
+                        ProgressEvent(
+                            "media_index",
+                            f"Indexing {pattern} for {label}",
+                            completed,
+                            total,
+                        )
+                    )
+                try:
+                    payload = client.get_json(
+                        CDX_URL,
+                        build_media_params(config, pattern, start, end, resume),
+                    )
+                    rows, next_resume = parse_cdx(payload)
+                    accepted: list[tuple[dict[str, str], str, str]] = []
+                    for row in rows:
+                        allowed, kind, actual_extension = allowed_media_url(
+                            row["original"],
+                            media,
+                            row.get("mimetype", ""),
+                        )
+                        if allowed and kind:
+                            accepted.append((row, kind, actual_extension or extension))
+                    with database:
+                        changed = upsert_media_captures(
+                            database,
+                            accepted,
+                            target_id,
+                            signature,
+                        )
+                        seen += len(rows)
+                        if next_resume:
+                            next_state = encode_resume(start, end, next_resume)
+                            complete = False
+                        elif window_index + 1 < len(windows):
+                            next_start, next_end = windows[window_index + 1]
+                            next_state = encode_resume(next_start, next_end, None)
+                            complete = False
+                        else:
+                            next_state = None
+                            complete = True
+                        save_media_state(
+                            target_id,
+                            extension,
+                            year,
+                            next_state,
+                            complete,
+                            seen,
+                            None if complete else error_id,
+                        )
+                        if complete and error_id:
+                            database.execute(
+                                "UPDATE errors SET resolved=1,last_seen=? WHERE id=?",
+                                (utc_now(), error_id),
+                            )
+                    if callback:
+                        callback(
+                            ProgressEvent(
+                                "media_index",
+                                (
+                                    f"{pattern} {label}: received {len(rows):,}, "
+                                    f"accepted {len(accepted):,}, stored {changed:,}"
+                                ),
+                                completed,
+                                total,
+                            )
+                        )
+                except Stopped:
+                    with database:
+                        save_media_state(
+                            target_id,
+                            extension,
+                            year,
+                            encode_resume(start, end, resume),
+                            False,
+                            seen,
+                            error_id,
+                        )
+                    raise
+                except Exception as exc:
+                    with database:
+                        error_id = record_error(
+                            database,
+                            "media_index",
+                            "index_failure",
+                            f"{pattern} {label}: {type(exc).__name__}: {exc}",
+                            retryable=True,
+                        )
+                        save_media_state(
+                            target_id,
+                            extension,
+                            year,
+                            encode_resume(start, end, resume),
+                            False,
+                            seen,
+                            error_id,
+                        )
+                    raise
+
+                if not next_resume:
+                    break
+                if next_resume == resume:
+                    raise RuntimeError("CDX returned the same media resume key twice")
+                resume = next_resume
+
+            completed += 1
 
 def index_embedded_media(
     config: ProjectConfig,
@@ -240,7 +366,23 @@ def index_media(
         raise ValueError("no image or video extensions remain after include/exclude filtering")
     signature = media_query_signature(config)
     limiter = AdaptiveRateLimiter(config.cdx_delay, 1, config.adaptive_rate_limit)
-    client = HttpClient(limiter, config.retries, max(config.connect_timeout, config.read_timeout), config.user_agent, stop_event)
+    def on_retry(attempt: int, total: int, reason: str, wait_seconds: float) -> None:
+        if callback:
+            callback(
+                ProgressEvent(
+                    "media_index",
+                    f"CDX media request failed ({reason}). Retrying attempt {attempt}/{total} in {wait_seconds:.1f}s…",
+                )
+            )
+
+    client = HttpClient(
+        limiter,
+        min(config.retries, 3),
+        min(max(config.connect_timeout, 15.0), 60.0),
+        config.user_agent,
+        stop_event,
+        retry_callback=on_retry,
+    )
     index_direct_media(config, database, client, stop_event, callback, signature)
     index_embedded_media(config, database, client, stop_event, callback, signature)
     _apply_snapshot_strategy(database, signature, media.snapshot_strategy)

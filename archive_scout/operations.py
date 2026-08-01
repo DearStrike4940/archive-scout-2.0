@@ -40,8 +40,12 @@ def prepare_scan_jobs(
     selected = config.selected_keyword_sets()
     if not selected:
         raise ValueError("select at least one keyword set containing at least one rule")
+    seen_keyword_set_ids: set[int] = set()
     for keyword_set in selected:
         keyword_set_id = get_or_create_keyword_set(database, keyword_set.name, keyword_set.rules)
+        if keyword_set_id in seen_keyword_set_ids:
+            continue
+        seen_keyword_set_ids.add(keyword_set_id)
         run_id = start_scan_run(
             database,
             keyword_set_id,
@@ -124,10 +128,12 @@ def run_project(
             download_media(config, database, stop_event, callback)
             return generate_media_reports(config, database)
 
+        if mode == "all":
+            index_archive(config, database, stop_event, callback)
+
         jobs = prepare_scan_jobs(database, config, mode)
         primary_run_id = jobs[0].scan_run_id
         if mode == "all":
-            index_archive(config, database, stop_event, callback)
             download_archive(config, database, primary_run_id, stop_event, callback, states=("pending",), scan_jobs=jobs)
         elif mode in {"download", "resume"}:
             download_archive(config, database, primary_run_id, stop_event, callback, states=("pending",), scan_jobs=jobs)
