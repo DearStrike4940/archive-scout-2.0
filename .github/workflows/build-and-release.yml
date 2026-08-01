@@ -24,8 +24,8 @@ jobs:
     needs: test
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: /checkout@v6
+      - uses: /setup-python@v6
         with:
           python-version: "3.11"
           architecture: "x64"
@@ -38,7 +38,7 @@ jobs:
       - name: Build Windows x64 package
         shell: pwsh
         run: ./scripts/build_windows.ps1
-      - uses: actions/upload-artifact@v7
+      - uses: /upload-artifact@v7
         with:
           name: ArchiveScout-Windows-x64
           path: |
@@ -50,10 +50,10 @@ jobs:
     needs: test
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: /checkout@v6
       - name: Install system GUI libraries
         run: sudo apt-get update && sudo apt-get install -y python3-tk
-      - uses: actions/setup-python@v6
+      - uses: /setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -94,8 +94,8 @@ jobs:
         with:
           name: ArchiveScout-macOS-Universal
           path: |
-            release/ArchiveScout-macOS-Universal.dmg
-            release/ArchiveScout-macOS-Universal.dmg.sha256
+            release/ArchiveScout-macOS-Universal.zip
+            release/ArchiveScout-macOS-Universal.zip.sha256
           if-no-files-found: error
 
   release:
