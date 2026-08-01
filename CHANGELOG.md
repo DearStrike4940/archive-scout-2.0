@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0-alpha.2.4
+
+- Fixed the macOS build failing at `hdiutil create` with `Resource busy` after the application bundle had already built and verified successfully
+- Replaced direct `hdiutil create -srcfolder` packaging with a writable-image, mount, copy, detach, and convert workflow
+- Moved temporary disk-image work into the GitHub runner temporary directory instead of the repository build tree
+- Added bounded retries for transient disk-image creation failures
+- Added retry and forced fallback handling when a disk image remains busy during detach
+- Preserved bundle verification before signing, inside the writable image, and inside the final compressed DMG
+- Added a packaging regression test that prevents the fragile `-srcfolder` workflow from returning
+
 ## 2.0.0-alpha.2.3
 
 - Fixed missing `base_library.zip` failures being mislabeled as Wayback network errors

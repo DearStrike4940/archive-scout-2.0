@@ -1,4 +1,4 @@
-Archive Scout 2.0.0-alpha.2.3 source validation
+Archive Scout 2.0.0-alpha.2.4 source validation
 
 Expected checks:
 - python -m compileall -q archive_scout scripts/verify_macos_bundle.py
@@ -9,7 +9,7 @@ Expected checks:
 - GitHub Actions Build All Platforms workflow
 
 Local validation before packaging:
-- 37 tests passed
+- 38 tests passed
 - package and macOS verification script compiled successfully
 - Tkinter interface instantiated successfully in a virtual display
 - macOS build script passed shell syntax validation

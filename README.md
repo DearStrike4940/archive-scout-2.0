@@ -251,7 +251,7 @@ A successful run creates Windows, Linux, and universal macOS artifacts. Pushing 
 
 ## Current status
 
-`2.0.0-alpha.2.2` is an alpha release. Keep backups of important projects and verify large media jobs with a narrow date range first.
+`2.0.0-alpha.2.4` is an alpha release. Keep backups of important projects and verify large media jobs with a narrow date range first.
 
 See [ROADMAP.md](ROADMAP.md), [docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/INDEXING_RECOVERY.md](docs/INDEXING_RECOVERY.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
