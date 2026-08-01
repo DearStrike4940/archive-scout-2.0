@@ -9,8 +9,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from typing import Callable
 from email.utils import parsedate_to_datetime
+from typing import Callable
 
 from ..constants import RETRYABLE_STATUS
 from ..downloads.rate_limit import AdaptiveRateLimiter
@@ -21,6 +21,36 @@ try:
     import truststore
 except ImportError:
     truststore = None
+
+
+class TransientRequestError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        timed_out: bool = False,
+        splittable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.timed_out = timed_out
+        self.splittable = splittable
+
+
+def is_timeout_error(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if isinstance(current, TimeoutError):
+            return True
+        reason = getattr(current, "reason", None)
+        if isinstance(reason, BaseException) and reason is not current:
+            current = reason
+            continue
+        current = current.__cause__ or current.__context__
+    return False
 
 
 class HttpClient:
@@ -34,8 +64,8 @@ class HttpClient:
         retry_callback: Callable[[int, int, str, float], None] | None = None,
     ) -> None:
         self.limiter = limiter
-        self.retries = retries
-        self.timeout = timeout
+        self.retries = max(1, int(retries))
+        self.timeout = max(1.0, float(timeout))
         self.user_agent = user_agent
         self.stop_event = stop_event
         self.retry_callback = retry_callback
@@ -92,14 +122,23 @@ class HttpClient:
                 if attempt + 1 == self.retries:
                     if exc.code == 429:
                         raise RateLimited(f"repeated HTTP 429 for {url}") from exc
-                    raise RuntimeError(f"HTTP {exc.code} after {self.retries} attempts: {url}") from exc
+                    raise TransientRequestError(
+                        f"HTTP {exc.code} after {self.retries} attempts: {url}",
+                        status=exc.code,
+                        splittable=exc.code in {408, 500, 502, 503, 504},
+                    ) from exc
                 self.retry_wait(attempt, f"HTTP {exc.code}", retry_after)
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 last_error = exc
+                timed_out = is_timeout_error(exc)
                 self.limiter.record_failure(None, None)
                 if attempt + 1 == self.retries:
-                    raise RuntimeError(f"network failure for {url}: {exc}") from exc
-                self.retry_wait(attempt, str(exc))
+                    raise TransientRequestError(
+                        f"network failure for {url}: {exc}",
+                        timed_out=timed_out,
+                        splittable=timed_out,
+                    ) from exc
+                self.retry_wait(attempt, "read timeout" if timed_out else str(exc))
         raise RuntimeError(f"request failed for {url}: {last_error}")
 
     def get_json(self, url: str, params: list[tuple[str, str]], max_bytes: int = 64 * 1024 * 1024) -> object:

@@ -26,6 +26,7 @@ Alpha 2 keeps every Alpha 1 feature and adds a full search-and-review workspace.
 - Scan history, report regeneration, deletion, renaming, and two-scan comparison
 - Error viewer with selected text-page and media retries
 - Adaptive rate limiting that lowers active concurrency after archive throttling
+- Adaptive CDX date splitting when broad monthly requests time out
 - Direct image and video indexing and downloading
 - Image/video discovery from links inside saved pages
 - Separate media targets and include/exclude extension lists
@@ -246,7 +247,7 @@ A successful run creates Windows, Linux, and universal macOS artifacts. Pushing 
 
 ## Current status
 
-`2.0.0-alpha.2.1` is an alpha release. Keep backups of important projects and verify large media jobs with a narrow date range first.
+`2.0.0-alpha.2.2` is an alpha release. Keep backups of important projects and verify large media jobs with a narrow date range first.
 
 See [ROADMAP.md](ROADMAP.md), [docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/INDEXING_RECOVERY.md](docs/INDEXING_RECOVERY.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

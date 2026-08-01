@@ -1,4 +1,4 @@
-Archive Scout 2.0.0-alpha.2.1 source validation
+Archive Scout 2.0.0-alpha.2.2 source validation
 
 Expected checks:
 - python -m compileall -q archive_scout
@@ -8,6 +8,6 @@ Expected checks:
 - GitHub Actions Build All Platforms workflow
 
 Local validation before packaging:
-- 29 tests passed
+- 31 tests passed
 - package compiled successfully
 - Tkinter interface instantiated successfully in a virtual display

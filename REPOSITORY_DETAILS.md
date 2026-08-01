@@ -1,6 +1,6 @@
 # Repository details
 
-Release: `2.0.0-alpha.2.1`
+Release: `2.0.0-alpha.2.2`
 
 Database schema: `3`
 
@@ -21,3 +21,5 @@ ArchiveScout-macOS-Universal.dmg
 Each package has a corresponding `.sha256` file.
 
 Alpha 2’s theme is **search, scoring, review, and media downloading**.
+
+Alpha 2.2 adds adaptive CDX window splitting for broad text and media index requests.

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.0-alpha.2.2
+
+- Fixed monthly CDX requests still aborting a run when a broad site query timed out
+- Added adaptive date-window splitting from months to seven-day, daily, six-hour, and hourly requests
+- Preserved dynamically split CDX queues in the existing index-state resume field
+- Resumed split indexing plans after Stop, application exit, or network failure
+- Reduced CDX timeout retries to two before automatically subdividing the date range
+- Limited individual CDX waits to 45 seconds while retaining visible retry messages
+- Applied adaptive splitting to direct image and video indexing as well as text-page indexing
+- Kept transient timeout splits out of the Errors table unless the smallest supported window also fails
+- Expanded the automated suite to 31 tests
+
 ## 2.0.0-alpha.2.1
 
 - Fixed Start silently doing nothing while a previous worker was still shutting down
