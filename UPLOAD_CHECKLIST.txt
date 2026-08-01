@@ -9,5 +9,5 @@ ARCHIVE SCOUT ALPHA 2 UPLOAD CHECKLIST
 7. Run the Tests workflow.
 8. Run Build All Platforms.
 9. Smoke-test the generated package.
-10. Publish tag v2.0.0-alpha.2.
+10. Publish tag v2.0.0-alpha.2.1.
 11. Confirm all three release downloads and checksum files are public.

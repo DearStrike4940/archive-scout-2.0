@@ -1,6 +1,6 @@
 # Repository details
 
-Release: `2.0.0-alpha.2`
+Release: `2.0.0-alpha.2.1`
 
 Database schema: `3`
 
