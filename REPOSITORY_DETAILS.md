@@ -1,26 +1,23 @@
-# Repository Details
+# Repository details
 
-Suggested repository name: `archive-scout`
+Release: `2.0.0-alpha.2`
 
-Suggested description:
+Database schema: `3`
 
-> Cross-platform desktop research tool for indexing, downloading, rescanning, and reviewing public Wayback Machine captures.
+Supported build targets:
 
-Suggested topics:
+- Windows x64
+- Linux x64
+- macOS Universal 2 for Intel and Apple Silicon
 
-```text
-wayback-machine
-internet-archive
-web-archiving
-lost-media
-osint
-python
-tkinter
-research-tools
-```
-
-First development tag:
+Primary release files:
 
 ```text
-v2.0.0-alpha.1
+ArchiveScout-Windows-x64.zip
+ArchiveScout-Linux-x64.tar.gz
+ArchiveScout-macOS-Universal.dmg
 ```
+
+Each package has a corresponding `.sha256` file.
+
+Alpha 2’s theme is **search, scoring, review, and media downloading**.

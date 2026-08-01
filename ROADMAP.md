@@ -1,101 +1,91 @@
 # Archive Scout 2.0 Roadmap
 
-## Alpha 1: project foundation
+## Alpha 1 — Foundation, rescanning, and retries
 
-Implemented in this repository:
+Completed:
 
 - Unified cross-platform repository
-- Version 2 SQLite project format
-- Safe version 1 migration and backup
-- Capture identity based on original URL, timestamp, and CDX query signature
-- Separate documents, keyword sets, scan runs, matches, hits, and structured errors
+- Version 2 project database
+- Safe migration and backups
 - Offline rescanning with preserved scan history
 - Retry only errored URLs
-- Local retry for scan and parsing errors
-- Project integrity report
-- Full-text index storage
-- Cross-platform tests and release workflow
+- Structured errors and project integrity checking
+- Cross-platform tests and builds
 
-## Alpha 2: advanced searching and scoring
+## Alpha 2 — Search, scoring, review, and media downloading
 
-- Named and editable keyword sets
-- Multiple keyword sets in one pass
-- Required, optional, excluded, and weighted terms
-- Whole-word and case-sensitive matching
-- Exact phrase controls
-- Synonym, spelling, punctuation, and language groups
-- Same-sentence, same-paragraph, and configurable proximity bonuses
-- Maximum contribution per term
-- Search within previous results
-- Full-text search interface
+Completed in this repository:
 
-## Alpha 3: result review interface
-
-- Built-in report viewer
-- Sort and filter by score, date, domain, title, term, and state
-- Match highlighting and snippets
-- Local-file and Wayback buttons
-- Unreviewed, relevant, possible, false positive, duplicate, dead end, and follow-up labels
-- Notes, tags, reviewer names, and timestamps
-- Next-unreviewed navigation
-- Selected-result exports
-
-## Alpha 4: forum research
-
-- Post-level parsing
-- Thread and topic ID extraction
-- Forum URL canonicalization
-- Thread-page grouping
-- Print, archive, and normal-page deduplication
-- Username, date, post number, and body extraction
-- Thread reconstruction
-- Missing-page detection
-- Parser profiles for vBulletin, phpBB, Invision, XenForo, MyAnimeList, Something Awful, Ogrish, and generic forums
-
-## Alpha 5: extraction and media recovery
-
-- User-defined regular-expression extractors
-- Google Video `docid` extraction
-- Thread, topic, filename, and media-ID extraction
-- Links from matching lines, paragraphs, and forum posts
-- Legacy `<embed>`, `<object>`, `<param>`, Flash, Windows Media, RealPlayer, iframe, and JavaScript-player detection
-- External media host grouping
-- Archived external-asset discovery
-- Controlled cross-domain crawling and approval queue
-
-## Alpha 6: duplicates and provenance
-
-- Exact and normalized content hashes
-- Near-duplicate similarity
-- Duplicate clusters and hidden duplicate counts
-- Canonical representative selection
-- Mirror and renamed-copy tracking
-- Source-to-mirror chronology
-- First known mention and first archived copy
-
-## Alpha 7: snapshot research
-
-- Earliest, latest, first successful, closest-date, monthly, yearly, first-and-last, limited, and every-capture policies
-- Text, link, title, and embed comparisons
-- First-appearance and disappearance searches
-- Snapshot timelines
-
-## Alpha 8: projects and collaboration
-
-- Import arbitrary HTML and text collections
-- Project merging
-- Shared review packages
-- Review-result merging
-- Collections and review queues
-- Saved searches and search history
-- Keyword, CDX, extractor, media-extension, and language templates
-
-## Beta: reliability and distribution
-
+- Built-in ranked results viewer
+- Review labels, notes, tags, filters, and exports
+- Advanced keyword rules and proximity scoring
+- Multiple named keyword sets in one pass
+- Instant offline full-text search
+- Scan history and comparison
 - Adaptive rate limiting
-- Dynamic worker reduction and recovery
+- Better error controls
+- Image/video indexing and downloading
+- Extension inclusion and exclusion
+- Embedded and optional external media discovery
+- Media retry, resume, and reports
+
+## Alpha 3 — Archive recovery and analysis
+
+Planned:
+
+- Forum post parsing and thread reconstruction
+- Forum URL canonicalization
+- Custom regular-expression extractors
+- Google Video `docid` and legacy identifier extraction
+- Legacy embed/player recovery
+- Controlled external-asset searching
+- Exact and near-duplicate clustering
+- Source-to-mirror provenance tracking
+- Snapshot comparison and first-appearance searches
+- Project merging and shared review merging
+
+## Alpha 4 — Integration, reliability, and feature freeze
+
+Planned:
+
+- Large-project performance and memory improvements
+- Pause, cancellation, resume, and crash recovery hardening
 - Per-target settings and queues
-- Improved ETA and throughput reporting
-- Retry by selected error category
-- Automatic update checks
-- Stable Windows x64, Linux x64, and universal macOS releases
+- Import of older script-created archives
+- Database backup, restore, repair, and index rebuilding
+- Final migration support for every alpha
+- Stress tests using hundreds of thousands of records
+- Project-format and database-schema freeze
+- Removal or clear marking of unfinished features
+
+## Beta 1 — Visual redesign and usability
+
+Planned:
+
+- Redesigned interface and navigation
+- Light and dark themes
+- Improved icons, spacing, typography, progress displays, and empty states
+- Simplified and advanced modes
+- Better high-DPI, font scaling, keyboard navigation, and accessibility
+- Improved tables, highlights, dashboards, charts, and first-run guidance
+
+## Beta 2 — Public testing and optimization
+
+- Broader real-world testing on every operating system
+- Parser and relevance improvements
+- Performance tuning
+- Documentation and installer refinements
+- Update notifications
+
+## Beta 3 — Final stabilization
+
+- No major new features
+- Final security, migration, packaging, and performance review
+- Release-candidate preparation
+
+## Stable release
+
+```text
+2.0.0-rc.1
+2.0.0
+```

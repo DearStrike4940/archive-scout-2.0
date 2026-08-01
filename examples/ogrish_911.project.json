@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0-alpha.2",
   "output_dir": "ArchiveScout-Ogrish-911",
   "targets": [
     "ogrishforum.com/*",
@@ -9,12 +9,33 @@
     "9/11",
     "World Trade Center",
     "WTC",
-    "jumpers",
-    "LOL Superman",
-    "skylight.mov",
-    "canopy"
+    "jumpers"
   ],
-  "keyword_set_name": "Ogrish 9/11",
+  "keyword_set_name": "Ogrish 9/11 General",
+  "keyword_sets": [
+    {
+      "name": "Ogrish 9/11 General",
+      "selected": true,
+      "rules": [
+        "required: World Trade Center | label=WTC concept",
+        "WTC | label=WTC concept",
+        "high: jumper",
+        "high: jumpers",
+        "exact: impact footage | weight=4",
+        "exclude: base jumping"
+      ]
+    },
+    {
+      "name": "Media filenames",
+      "selected": true,
+      "rules": [
+        "exact: skylight.mov | weight=5",
+        "regex: lol[ _-]?superman | label=LOL Superman | weight=4",
+        "carport",
+        "canopy"
+      ]
+    }
+  ],
   "from_date": "2005",
   "to_date": "2007",
   "cdx_filters": ["statuscode:200"],
@@ -28,9 +49,18 @@
   "page_size": 5000,
   "cdx_delay": 0.8,
   "download_delay": 0.25,
-  "retries": 6,
-  "connect_timeout": 30,
-  "read_timeout": 180,
-  "max_attempts": 4,
-  "user_agent": "ArchiveScout/2.0 public web archive research client"
+  "adaptive_rate_limit": true,
+  "media": {
+    "enabled": false,
+    "targets": ["ogrishforum.com/*", "forum.ogrish.com/*"],
+    "include_images": true,
+    "include_videos": true,
+    "include_extensions": [".jpg", ".jpeg", ".png", ".gif", ".wmv", ".mov", ".mpg", ".mpeg", ".avi", ".mp4", ".flv"],
+    "exclude_extensions": [".ico", ".svg"],
+    "discover_embedded": true,
+    "allow_external_embeds": false,
+    "snapshot_strategy": "earliest",
+    "max_file_mb": 500,
+    "preserve_paths": true
+  }
 }

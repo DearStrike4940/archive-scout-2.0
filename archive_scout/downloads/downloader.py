@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
-import json
 import sqlite3
 import threading
 import time
@@ -17,10 +16,11 @@ from ..constants import REPLAY_URL
 from ..content import classify_replay_content, decode_bytes, is_text_candidate, looks_textual_bytes, parse_page
 from ..database.repositories import record_error, resolve_errors, save_match, upsert_document
 from ..events import ProgressEvent, RateLimited, Stopped
-from ..scanning.keywords import compile_keywords, keyword_url_match
+from ..scanning.jobs import ScanJob
+from ..scanning.keywords import keyword_url_match
 from ..scanning.scoring import analyze_content
 from ..utils import atomic_write_text, hash_text, normalize_search, utc_now
-from .rate_limit import SharedRateLimiter
+from .rate_limit import AdaptiveRateLimiter
 from .validation import classify_exception
 
 
@@ -70,7 +70,7 @@ def select_download_rows(
                     retryable=False,
                 )
             continue
-        if config.download_scope == "keyword_urls" and not keyword_url_match(row["original_url"], patterns):
+        if config.download_scope == "keyword_urls" and patterns and not keyword_url_match(row["original_url"], patterns):
             with database:
                 database.execute("UPDATE captures SET state='skipped',updated_at=? WHERE id=?", (utc_now(), row["id"]))
             continue
@@ -78,7 +78,7 @@ def select_download_rows(
     return selected
 
 
-def fetch_parse_scan(row: sqlite3.Row, config: ProjectConfig, patterns, client: HttpClient) -> dict:
+def fetch_parse_scan(row: sqlite3.Row, config: ProjectConfig, jobs: list[ScanJob], client: HttpClient) -> dict:
     original = row["original_url"]
     response = client.get(replay_url(row["timestamp"], original), config.max_file_bytes)
     content_type = response["headers"].get("Content-Type", row["mimetype"] or "")
@@ -90,7 +90,10 @@ def fetch_parse_scan(row: sqlite3.Row, config: ProjectConfig, patterns, client: 
     if replay_problem:
         raise RuntimeError(replay_problem)
     title, visible, links = parse_page(raw, original)
-    analysis = analyze_content(original, title, visible, raw, links, patterns)
+    analyses = {
+        job.scan_run_id: analyze_content(original, title, visible, raw, links, job.patterns)
+        for job in jobs
+    }
     path = capture_path(config.output_dir, int(row["id"]), row["timestamp"], original)
     atomic_write_text(path, raw)
     return {
@@ -99,7 +102,7 @@ def fetch_parse_scan(row: sqlite3.Row, config: ProjectConfig, patterns, client: 
         "title": title,
         "visible": visible,
         "links": links,
-        "analysis": analysis,
+        "analyses": analyses,
         "content_hash": hash_text(raw),
         "normalized_hash": hash_text(normalize_search(visible)),
         "bytes_saved": len(data),
@@ -108,7 +111,7 @@ def fetch_parse_scan(row: sqlite3.Row, config: ProjectConfig, patterns, client: 
     }
 
 
-def save_success(database: sqlite3.Connection, result: dict, scan_run_id: int) -> None:
+def save_success(database: sqlite3.Connection, result: dict) -> None:
     with database:
         document_id = upsert_document(
             database,
@@ -125,7 +128,8 @@ def save_success(database: sqlite3.Connection, result: dict, scan_run_id: int) -
             "UPDATE captures SET state='downloaded',http_status=?,final_url=?,bytes_saved=?,updated_at=? WHERE id=?",
             (result["http_status"], result["final_url"], result["bytes_saved"], utc_now(), result["capture_id"]),
         )
-        save_match(database, scan_run_id, document_id, result["analysis"])
+        for scan_run_id, analysis in result["analyses"].items():
+            save_match(database, int(scan_run_id), document_id, analysis)
         resolve_errors(database, capture_id=result["capture_id"], document_id=document_id)
 
 
@@ -137,23 +141,25 @@ def download_archive(
     callback: Callable[[ProgressEvent], None] | None,
     states: tuple[str, ...] = ("pending",),
     capture_ids: list[int] | None = None,
+    scan_jobs: list[ScanJob] | None = None,
 ) -> None:
     if config.download_scope == "index_only":
         if callback:
             callback(ProgressEvent("download", "Index-only mode selected; downloads skipped."))
         return
-    patterns = compile_keywords(config.keywords)
-    if not patterns:
-        raise ValueError("at least one keyword is required")
+    jobs = scan_jobs or [ScanJob.create(scan_run_id, config.keyword_set_name, config.keywords)]
+    if not jobs or any(not job.patterns for job in jobs):
+        raise ValueError("at least one keyword rule is required")
+    combined_patterns = [item for job in jobs for item in job.patterns]
     with database:
         database.execute("UPDATE captures SET state='pending' WHERE state='downloading'")
-    rows = select_download_rows(database, config, patterns, states=states, capture_ids=capture_ids)
+    rows = select_download_rows(database, config, combined_patterns, states=states, capture_ids=capture_ids)
     total = len(rows)
     if not total:
         if callback:
             callback(ProgressEvent("download", "No matching captures to download.", 0, 0))
         return
-    limiter = SharedRateLimiter(config.download_delay)
+    limiter = AdaptiveRateLimiter(config.download_delay, config.workers, config.adaptive_rate_limit)
     client = HttpClient(
         limiter,
         config.retries,
@@ -180,7 +186,7 @@ def download_archive(
                     "UPDATE captures SET state='downloading',download_attempts=download_attempts+1,updated_at=? WHERE id=?",
                     (utc_now(), row["id"]),
                 )
-            futures[pool.submit(fetch_parse_scan, row, config, patterns, client)] = row
+            futures[pool.submit(fetch_parse_scan, row, config, jobs, client)] = row
             return True
 
         while len(futures) < max_inflight and submit_next():
@@ -195,8 +201,12 @@ def download_archive(
                 row = futures.pop(future)
                 try:
                     result = future.result()
-                    save_success(database, result, scan_run_id)
-                    matched += int(int(result["analysis"].get("score") or 0) >= config.minimum_score)
+                    save_success(database, result)
+                    matched += int(any(
+                        int(analysis.get("score") or 0) >= config.minimum_score
+                        and not analysis.get("excluded") and not analysis.get("required_missing")
+                        for analysis in result["analyses"].values()
+                    ))
                 except Stopped:
                     with database:
                         database.execute("UPDATE captures SET state='pending',updated_at=? WHERE id=?", (utc_now(), row["id"]))
@@ -208,7 +218,10 @@ def download_archive(
                         category = str(exc)
                         retryable = False
                     with database:
-                        database.execute("UPDATE captures SET state='error',http_status=?,updated_at=? WHERE id=?", (status, utc_now(), row["id"]))
+                        database.execute(
+                            "UPDATE captures SET state='error',http_status=?,updated_at=? WHERE id=?",
+                            (status, utc_now(), row["id"]),
+                        )
                         record_error(
                             database,
                             "download",
@@ -229,10 +242,17 @@ def download_archive(
                     callback(
                         ProgressEvent(
                             "download",
-                            f"Downloaded and scanned {completed:,}/{total:,}; matches {matched:,}; errors {failures:,}; {rate:.1f}/s",
+                            f"Downloaded/scanned {completed:,}/{total:,}; matches {matched:,}; errors {failures:,}; "
+                            f"{rate:.1f}/s; active limit {limiter.current_limit}",
                             completed,
                             total,
-                            {"matched": matched, "failures": failures, "rate": rate},
+                            {
+                                "matched": matched,
+                                "failures": failures,
+                                "rate": rate,
+                                "active_limit": limiter.current_limit,
+                                "effective_delay": limiter.effective_delay,
+                            },
                         )
                     )
                 while len(futures) < max_inflight and submit_next():

@@ -25,7 +25,7 @@ def index_archive(
     stop_event: threading.Event,
     callback: Callable[[ProgressEvent], None] | None,
 ) -> None:
-    limiter = SharedRateLimiter(config.cdx_delay)
+    limiter = SharedRateLimiter(config.cdx_delay, 1, config.adaptive_rate_limit)
     client = HttpClient(
         limiter,
         config.retries,

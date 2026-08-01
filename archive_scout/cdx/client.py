@@ -8,13 +8,13 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
-from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 from ..constants import RETRYABLE_STATUS
+from ..downloads.rate_limit import AdaptiveRateLimiter
 from ..events import RateLimited, Stopped
 from ..utils import clean_space
-from ..downloads.rate_limit import SharedRateLimiter
 
 try:
     import truststore
@@ -25,7 +25,7 @@ except ImportError:
 class HttpClient:
     def __init__(
         self,
-        limiter: SharedRateLimiter,
+        limiter: AdaptiveRateLimiter,
         retries: int,
         timeout: float,
         user_agent: str,
@@ -47,42 +47,45 @@ class HttpClient:
         }
         last_error: Exception | None = None
         for attempt in range(self.retries):
-            self.limiter.wait(self.stop_event)
             request = urllib.request.Request(url, headers=headers)
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout, context=self.ssl_context) as response:
-                    announced = response.headers.get("Content-Length")
-                    if announced and announced.isdigit() and int(announced) > max_bytes:
-                        raise RuntimeError(f"response exceeds {max_bytes:,} bytes")
-                    chunks: list[bytes] = []
-                    size = 0
-                    while True:
-                        if self.stop_event.is_set():
-                            raise Stopped
-                        chunk = response.read(min(1024 * 1024, max_bytes - size + 1))
-                        if not chunk:
-                            break
-                        size += len(chunk)
-                        if size > max_bytes:
+                with self.limiter.slot(self.stop_event):
+                    with urllib.request.urlopen(request, timeout=self.timeout, context=self.ssl_context) as response:
+                        announced = response.headers.get("Content-Length")
+                        if announced and announced.isdigit() and int(announced) > max_bytes:
                             raise RuntimeError(f"response exceeds {max_bytes:,} bytes")
-                        chunks.append(chunk)
-                    data = b"".join(chunks)
-                    if response.headers.get("Content-Encoding", "").lower() == "gzip":
-                        try:
-                            data = gzip.decompress(data)
-                        except OSError:
-                            pass
-                    return {
-                        "data": data,
-                        "status": int(getattr(response, "status", 200)),
-                        "headers": dict(response.headers.items()),
-                        "final_url": response.geturl(),
-                    }
+                        chunks: list[bytes] = []
+                        size = 0
+                        while True:
+                            if self.stop_event.is_set():
+                                raise Stopped
+                            chunk = response.read(min(1024 * 1024, max_bytes - size + 1))
+                            if not chunk:
+                                break
+                            size += len(chunk)
+                            if size > max_bytes:
+                                raise RuntimeError(f"response exceeds {max_bytes:,} bytes")
+                            chunks.append(chunk)
+                        data = b"".join(chunks)
+                        if response.headers.get("Content-Encoding", "").lower() == "gzip":
+                            try:
+                                data = gzip.decompress(data)
+                            except OSError:
+                                pass
+                        result = {
+                            "data": data,
+                            "status": int(getattr(response, "status", 200)),
+                            "headers": dict(response.headers.items()),
+                            "final_url": response.geturl(),
+                        }
+                self.limiter.record_success()
+                return result
             except urllib.error.HTTPError as exc:
                 last_error = exc
+                retry_after = parse_retry_after(exc.headers.get("Retry-After"))
+                self.limiter.record_failure(exc.code, retry_after)
                 if exc.code not in RETRYABLE_STATUS:
                     raise RuntimeError(f"HTTP {exc.code}: {url}") from exc
-                retry_after = parse_retry_after(exc.headers.get("Retry-After"))
                 if attempt + 1 == self.retries:
                     if exc.code == 429:
                         raise RateLimited(f"repeated HTTP 429 for {url}") from exc
@@ -90,6 +93,7 @@ class HttpClient:
                 self.retry_wait(attempt, retry_after)
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 last_error = exc
+                self.limiter.record_failure(None, None)
                 if attempt + 1 == self.retries:
                     raise RuntimeError(f"network failure for {url}: {exc}") from exc
                 self.retry_wait(attempt)

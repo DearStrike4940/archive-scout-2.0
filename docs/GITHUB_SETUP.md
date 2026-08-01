@@ -1,43 +1,51 @@
-# GitHub Setup
+# GitHub setup
 
-## Upload the repository
+## Repository upload
 
-Create one new public repository and upload the complete contents of this folder, including the hidden `.github` directory.
-
-A suitable name is:
+Upload the contents of the extracted repository folder, not the enclosing folder itself. The repository root must directly contain:
 
 ```text
-archive-scout
+.github/
+archive_scout/
+docs/
+examples/
+packaging/
+scripts/
+tests/
+README.md
+pyproject.toml
+requirements-build.txt
+requirements-runtime.txt
+run_app.py
 ```
 
-## Test the repository
+On macOS, press `Command + Shift + .` in Finder to reveal `.github`.
 
-1. Open **Actions**.
-2. Open **Tests**.
-3. Run the workflow manually if it has not already started.
-4. Confirm Windows, Linux, and macOS tests pass.
+## Test workflow
 
-## Build all platforms
+Open **Actions → Tests**. The matrix tests Windows, Linux, and Intel macOS with Python 3.11 and 3.12.
 
-1. Open **Actions**.
-2. Select **Build All Platforms**.
-3. Click **Run workflow**.
-4. Download and test the Windows, Linux, and macOS artifacts.
+## Build workflow
 
-## Publish the first alpha
+Open **Actions → Build All Platforms → Run workflow**. A successful manual run creates three workflow artifacts.
 
-After testing all three builds, create and push the tag:
+## Release
+
+Publish the tag:
 
 ```text
-v2.0.0-alpha.1
+v2.0.0-alpha.2
 ```
 
-The workflow creates or updates the release and attaches:
+The tagged build uploads:
 
 ```text
 ArchiveScout-Windows-x64.zip
+ArchiveScout-Windows-x64.zip.sha256
 ArchiveScout-Linux-x64.tar.gz
+ArchiveScout-Linux-x64.tar.gz.sha256
 ArchiveScout-macOS-Universal.dmg
+ArchiveScout-macOS-Universal.dmg.sha256
 ```
 
-Each package also receives a SHA-256 file. The README download links begin working publicly after these assets are attached to a published release.
+Do not use workflow-artifact URLs as public download links. The README points to GitHub Release assets.

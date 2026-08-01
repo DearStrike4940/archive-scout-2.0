@@ -1,35 +1,66 @@
-# Operation Guide
+# Operations
 
-## Rescan existing downloads
+## Text workflows
 
-Use this after changing keywords.
+### Full run
 
-1. Load the existing `project.json`.
-2. Replace the keywords in the Keywords tab.
-3. Select **Rescan existing downloads with current keywords**.
-4. Click **Start**.
+Indexes text captures, downloads pending pages, evaluates every selected keyword set in one pass, and creates reports.
 
-Archive Scout reads the project database and saved text files. It does not query CDX or download any captures. A new scan run and new report folder are created.
+### Index only
 
-## Retry only errored URLs
+Stores CDX capture metadata without downloading pages.
 
-Use this after timeouts, temporary server errors, failed scans, or interrupted parsing.
+### Download pending
 
-1. Load the same project.
-2. Keep the intended keywords in the Keywords tab.
-3. Select **Retry only errored URLs**.
-4. Click **Start**.
+Downloads only pending records already stored in the database and scans them with the selected keyword sets.
 
-Only unresolved retryable errors are selected. Existing valid files are rescanned locally. Other failed captures are downloaded again.
+### Resume interrupted work
 
-## Resume interrupted work
+Continues records restored to `pending` after a stopped run. Existing errors remain untouched.
 
-Use this after intentionally stopping a run or after an application or system interruption. Resume processes pending records. It does not automatically include records already classified as errors.
+### Offline rescan
 
-## Regenerate reports
+Reads every valid local document once and evaluates all selected keyword sets. No network requests occur.
 
-Use this when the database is complete but report files were moved or deleted. No scanning or downloading occurs.
+### Retry errors
 
-## Check project integrity
+Retries selected or unresolved errors. Scan and parse failures use a valid local document. Download failures are requested again only when needed. Selected media errors can be retried through the same error viewer.
 
-This creates `reports/integrity.txt`. It does not repair or delete anything in alpha 1.
+### Regenerate reports
+
+Recreates the latest text reports from the database without downloading or scanning.
+
+### Integrity check
+
+Reports missing files, empty files, size mismatches, orphaned files, invalid references, and unresolved errors.
+
+## Media workflows
+
+### Index and download selected media
+
+Runs direct CDX extension searches, optionally looks up media linked by saved documents, applies the snapshot strategy, and downloads pending records.
+
+### Index media only
+
+Stores media captures without downloading binary files.
+
+### Download pending media
+
+Downloads media captures whose state is `pending`.
+
+### Retry media errors
+
+Selects unresolved retryable media failures. Successful media files are not downloaded again.
+
+## Media selection order
+
+1. Build the included extension set.
+2. Remove explicitly excluded extensions.
+3. Remove image types when Images is disabled.
+4. Remove video types when Videos is disabled.
+5. Index only the remaining extensions.
+6. Apply earliest, latest, or all snapshot selection.
+
+## Keyword scoring
+
+The score combines field location, rule weight, exact-phrase bonuses, distinct matched concepts, same-sentence matches, same-paragraph matches, and nearby terms. URL and title matches are weighted above body matches. Repeated matches are capped per field. Required terms and excluded terms act as gates rather than ordinary bonuses.

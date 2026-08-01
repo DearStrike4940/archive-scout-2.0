@@ -45,11 +45,15 @@ def generate_reports(
     run_dir.mkdir(parents=True, exist_ok=True)
     rows = database.execute(
         """
-        SELECT m.*,d.path,d.title,d.size_bytes,c.original_url,c.timestamp,c.mimetype,c.state
+        SELECT m.*,d.path,d.title,d.size_bytes,c.original_url,c.timestamp,c.mimetype,c.state,
+               COALESCE(r.status,'unreviewed') AS review_status,
+               COALESCE((SELECT text FROM notes n WHERE n.match_id=m.id ORDER BY n.id LIMIT 1),'') AS note,
+               COALESCE((SELECT GROUP_CONCAT(t.name, ', ') FROM match_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.match_id=m.id),'') AS tags
         FROM document_matches m
         JOIN documents d ON d.id=m.document_id
         JOIN captures c ON c.id=d.capture_id
-        WHERE m.scan_run_id=? AND m.score>=?
+        LEFT JOIN reviews r ON r.match_id=m.id
+        WHERE m.scan_run_id=? AND m.score>=? AND m.excluded=0 AND m.required_missing=0
         ORDER BY m.score DESC,c.timestamp,c.original_url
         """,
         (scan_run_id, config.minimum_score),
@@ -91,6 +95,9 @@ def generate_reports(
                     f"WAYBACK URL: {replay_url(row['timestamp'], row['original_url'])}",
                     f"LOCAL FILE: {row['path']}",
                     f"MIME TYPE: {row['mimetype'] or '(unknown)'}",
+                    f"REVIEW STATUS: {row['review_status']}",
+                    f"TAGS: {row['tags'] or '(none)'}",
+                    f"NOTE: {row['note'] or '(none)'}",
                     f"KEYWORD HITS: {'; '.join(hit_lines) if hit_lines else 'None'}",
                     "SNIPPETS:",
                     *snippet_lines,
@@ -132,7 +139,7 @@ def generate_reports(
         f"Output directory: {config.output_dir}",
         f"Scan run: {scan_run_id}",
         f"Keyword set: {run['keyword_set_name']}",
-        f"Keywords: {len(keywords):,}",
+        f"Keyword rules: {len(keywords):,}",
         f"Scan source operation: {run['source_operation']}",
         f"Scan started: {run['started_at']}",
         f"Scan completed: {run['completed_at'] or '(not marked complete)'}",

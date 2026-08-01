@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -10,21 +9,19 @@ from ..content import parse_page
 from ..database.repositories import record_error, resolve_errors, save_match, upsert_document
 from ..events import ProgressEvent, Stopped
 from ..utils import hash_text, normalize_search
-from .keywords import compile_keywords
+from .jobs import ScanJob
 from .scoring import analyze_content
 
 
-def rescan_documents(
+def rescan_keyword_sets(
     database: sqlite3.Connection,
-    scan_run_id: int,
-    keywords: list[str],
+    jobs: list[ScanJob],
     stop_event: threading.Event,
     callback: Callable[[ProgressEvent], None] | None = None,
     document_ids: list[int] | None = None,
 ) -> None:
-    patterns = compile_keywords(keywords)
-    if not patterns:
-        raise ValueError("at least one keyword is required")
+    if not jobs or any(not job.patterns for job in jobs):
+        raise ValueError("at least one keyword rule is required in every selected keyword set")
     if document_ids:
         placeholders = ",".join("?" for _ in document_ids)
         rows = database.execute(
@@ -65,9 +62,12 @@ def rescan_documents(
         try:
             raw = path.read_text(encoding="utf-8", errors="replace")
             title, visible, links = parse_page(raw, row["original_url"])
-            analysis = analyze_content(row["original_url"], title, visible, raw, links, patterns)
+            analyses = [
+                (job.scan_run_id, analyze_content(row["original_url"], title, visible, raw, links, job.patterns))
+                for job in jobs
+            ]
             with database:
-                upsert_document(
+                document_id = upsert_document(
                     database,
                     int(row["capture_id"]),
                     path,
@@ -78,11 +78,12 @@ def rescan_documents(
                     hash_text(normalize_search(visible)),
                     path.stat().st_size,
                 )
-                save_match(database, scan_run_id, int(row["id"]), analysis)
+                for scan_run_id, analysis in analyses:
+                    save_match(database, scan_run_id, document_id, analysis)
                 resolve_errors(
                     database,
                     capture_id=int(row["capture_id"]),
-                    document_id=int(row["id"]),
+                    document_id=document_id,
                     operations=("scan", "parse"),
                 )
         except Exception as exc:
@@ -97,4 +98,28 @@ def rescan_documents(
                     retryable=True,
                 )
         if callback:
-            callback(ProgressEvent("rescan", f"Rescanned {index:,}/{total:,}", index, total))
+            callback(
+                ProgressEvent(
+                    "rescan",
+                    f"Rescanned {index:,}/{total:,} against {len(jobs):,} keyword set(s)",
+                    index,
+                    total,
+                )
+            )
+
+
+def rescan_documents(
+    database: sqlite3.Connection,
+    scan_run_id: int,
+    keywords: list[str],
+    stop_event: threading.Event,
+    callback: Callable[[ProgressEvent], None] | None = None,
+    document_ids: list[int] | None = None,
+) -> None:
+    rescan_keyword_sets(
+        database,
+        [ScanJob.create(scan_run_id, "Current keywords", keywords)],
+        stop_event,
+        callback,
+        document_ids,
+    )

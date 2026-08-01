@@ -40,7 +40,7 @@ class LegacyMigrationTests(unittest.TestCase):
             (root / "project.json").write_text(json.dumps({"keywords": ["WTC", "jumper"]}), encoding="utf-8")
             modern = open_database(root)
             self.assertTrue((root / "archive_scout.v1.backup.sqlite3").exists())
-            self.assertEqual(modern.execute("SELECT version FROM schema_info").fetchone()[0], 2)
+            self.assertEqual(modern.execute("SELECT version FROM schema_info").fetchone()[0], 3)
             self.assertEqual(modern.execute("SELECT COUNT(*) FROM captures").fetchone()[0], 1)
             self.assertEqual(modern.execute("SELECT COUNT(*) FROM documents").fetchone()[0], 1)
             self.assertEqual(modern.execute("SELECT COUNT(*) FROM document_matches").fetchone()[0], 1)

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.0.0-alpha.2
+
+- Added built-in ranked result viewing, sorting, filtering, snippets, notes, tags, and review labels
+- Added next-unreviewed navigation and filtered CSV, JSON, Markdown, and review-package exports
+- Added named keyword-set creation, duplication, import, export, and multi-set scanning in one pass
+- Added required, excluded, exact, regex, weighted, case-sensitive, whole-word, and shared-label keyword rules
+- Added same-sentence, same-paragraph, distinct-term, and proximity scoring bonuses
+- Added instant offline full-text search restricted to the selected scan when desired
+- Added scan history controls and two-scan comparison reports
+- Added adaptive request limiting with concurrency reduction, cooldowns, and gradual recovery
+- Added an error viewer with selected text-page and media retries
+- Added direct image/video CDX indexing and embedded-media discovery
+- Added separate media targets, image/video toggles, include/exclude extension lists, and snapshot strategies
+- Added resumable media downloading, media error retries, safe paths, hashes, size limits, and media reports
+- Added schema version 3 and automatic in-place migration from Alpha 1 schema version 2
+- Expanded the automated suite to 24 unit, migration, and integration tests
+- Updated GitHub artifact actions to Node.js 24-compatible versions
+
 ## 2.0.0-alpha.1
 
 - Unified the Windows, Linux, Intel Mac, and Apple Silicon projects
