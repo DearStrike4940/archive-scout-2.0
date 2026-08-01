@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from archive_scout.cdx.client import TransientRequestError
 from archive_scout.cdx.indexer import index_archive
 from archive_scout.config import KeywordSetConfig, ProjectConfig
 from archive_scout.database.connection import open_database
@@ -33,6 +34,71 @@ class IndexRecoveryTests(unittest.TestCase):
             state = database.execute("SELECT complete,seen,resume_key FROM index_state").fetchone()
             self.assertEqual(state["complete"], 1)
             self.assertEqual(state["seen"], 0)
+            self.assertIsNone(state["resume_key"])
+            database.close()
+
+    def test_timeout_is_split_into_smaller_windows_and_continues(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = ProjectConfig(
+                output_dir=root,
+                targets=["example.com/*"],
+                keywords=["example"],
+                from_date="200301",
+                to_date="200301",
+                cdx_delay=0,
+                retries=1,
+            ).normalized()
+            database = open_database(root)
+            timeout = TransientRequestError(
+                "read operation timed out",
+                timed_out=True,
+                splittable=True,
+            )
+            with patch(
+                "archive_scout.cdx.client.HttpClient.get_json",
+                side_effect=[timeout, [], [], [], [], []],
+            ) as mocked:
+                index_archive(config, database, threading.Event())
+            self.assertEqual(mocked.call_count, 6)
+            state = database.execute("SELECT complete,resume_key FROM index_state").fetchone()
+            self.assertEqual(state["complete"], 1)
+            self.assertIsNone(state["resume_key"])
+            self.assertEqual(database.execute("SELECT COUNT(*) FROM errors").fetchone()[0], 0)
+            database.close()
+
+    def test_split_window_plan_survives_stop_and_resume(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = ProjectConfig(
+                output_dir=root,
+                targets=["example.com/*"],
+                keywords=["example"],
+                from_date="200301",
+                to_date="200301",
+                cdx_delay=0,
+                retries=1,
+            ).normalized()
+            database = open_database(root)
+            timeout = TransientRequestError(
+                "read operation timed out",
+                timed_out=True,
+                splittable=True,
+            )
+            with patch(
+                "archive_scout.cdx.client.HttpClient.get_json",
+                side_effect=[timeout, Stopped()],
+            ):
+                with self.assertRaises(Stopped):
+                    index_archive(config, database, threading.Event())
+            state = database.execute("SELECT complete,resume_key FROM index_state").fetchone()
+            self.assertEqual(state["complete"], 0)
+            self.assertIn('"version":2', state["resume_key"])
+            with patch("archive_scout.cdx.client.HttpClient.get_json", return_value=[]) as mocked:
+                index_archive(config, database, threading.Event())
+            self.assertEqual(mocked.call_count, 5)
+            state = database.execute("SELECT complete,resume_key FROM index_state").fetchone()
+            self.assertEqual(state["complete"], 1)
             self.assertIsNone(state["resume_key"])
             database.close()
 

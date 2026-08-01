@@ -1,31 +1,52 @@
 # Indexing recovery
 
-Archive Scout 2.0.0-alpha.2.1 divides each selected year into monthly CDX windows.
+Archive Scout 2.0.0-alpha.2.2 begins with monthly CDX windows. When the Wayback CDX server times out on a broad request, Archive Scout automatically subdivides only that failed range and continues.
 
-Each completed month is saved in `index_state`. If a request fails or the run is stopped, the current month and CDX resume key are stored in the existing `resume_key` column. Starting the same project again continues from that month.
+The fallback sizes are:
 
-## Recovering an Alpha 2 project
+- month
+- seven-day windows
+- one-day windows
+- six-hour windows
+- one-hour windows
 
-1. Replace the Alpha 2 source with Alpha 2.1 and rebuild the application.
+The complete pending-window queue and any CDX resume key are stored in the existing `index_state.resume_key` field. No database schema change is required. Stopping the application or reopening the project continues from the saved split window instead of restarting the year.
+
+## Recovering an Alpha 2 or Alpha 2.1 project
+
+1. Replace the existing source with Alpha 2.2 and rebuild the application.
 2. Keep the existing project folder, `project.json`, database, captures, and reports.
 3. Open the same `project.json`.
 4. Use the original operation or `Resume interrupted work`.
-5. Archive Scout skips years already marked complete and retries the incomplete year in monthly windows.
+5. Archive Scout skips completed years and resumes the incomplete date-window queue.
 
-Do not delete `archive_scout.sqlite3`. The patch uses the existing schema version 3 database.
+Do not delete `archive_scout.sqlite3`. Alpha 2.2 uses the existing schema version 3 database.
+
+## Broad target warning
+
+A target covering an entire large site can still be expensive. `collapse=urlkey` is strongly recommended when only one capture per unique URL is needed. Without it, the CDX server may need to enumerate every archived snapshot.
+
+For an entire host, prefer a clear target such as:
+
+```text
+2ch.io/*
+```
+
+Keep **Collapse URL key** selected unless repeated snapshots of the same URL are required.
 
 ## Activity messages
 
-Indexing now reports:
+Indexing reports:
 
-- the target and month currently being queried
+- the target and exact date window currently being queried
 - retry reason, retry number, and wait time
+- automatic split decisions
 - rows returned and stored
 - total rows seen
 - CDX request duration
 - SQLite write duration
 
-These values make it possible to distinguish a slow Wayback query from slow local database work.
+These values distinguish a slow Wayback query from slow local database work.
 
 ## Duplicate keyword sets
 
