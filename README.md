@@ -10,6 +10,10 @@ One repository now produces builds for Windows x64, Linux x64, and universal mac
 - [Download for Linux x64](../../releases/latest/download/ArchiveScout-Linux-x64.tar.gz)
 - [Download for macOS Intel and Apple Silicon](../../releases/latest/download/ArchiveScout-macOS-Universal.dmg)
 
+### macOS installation
+
+Open the DMG, drag `Archive Scout.app` into `/Applications`, eject the DMG, and launch the installed copy. Quit Archive Scout completely before replacing it with a newer release. Do not move, rename, delete, or overwrite the `.app` while it is running; frozen Python applications continue loading bundled runtime files from the application bundle during use.
+
 ## What is new in Alpha 2
 
 Alpha 2 keeps every Alpha 1 feature and adds a full search-and-review workspace.

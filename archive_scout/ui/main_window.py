@@ -37,6 +37,7 @@ from ..operations import run_project
 from ..reports.compare import generate_scan_comparison
 from ..reports.export import export_review_package, export_scan
 from ..reports.text import generate_reports
+from ..runtime import FrozenBundleError, ensure_frozen_bundle_available
 from ..scanning.full_text import search_documents
 
 MODE_LABELS = OPERATION_MODES
@@ -658,8 +659,9 @@ class ArchiveScoutApp(tk.Tk):
                 return
             self.worker_thread = None
         try:
+            ensure_frozen_bundle_available()
             config = override_config or self.build_config()
-        except ValueError as exc:
+        except (ValueError, FrozenBundleError) as exc:
             messagebox.showerror(APP_NAME, str(exc))
             return
         mode = override_mode or MODE_LABELS[self.mode_var.get()]
@@ -679,6 +681,8 @@ class ArchiveScoutApp(tk.Tk):
             self.events.put(("stopped", None))
         except RateLimited as exc:
             self.events.put(("error", f"{exc}\n\nProgress is saved. Resume later with the same project."))
+        except FrozenBundleError as exc:
+            self.events.put(("error", str(exc)))
         except Exception:
             self.events.put(("error", traceback.format_exc()))
 

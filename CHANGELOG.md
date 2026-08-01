@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.0-alpha.2.3
+
+- Fixed missing `base_library.zip` failures being mislabeled as Wayback network errors
+- Added a frozen-runtime integrity check before every operation and HTTP request
+- Added a clear recovery message when the running macOS app was moved, renamed, deleted, replaced, or incompletely copied
+- Prevented a missing application runtime from entering CDX retry and date-window splitting logic
+- Switched macOS application staging from `cp -R` to `ditto` to preserve bundle metadata and symbolic links
+- Added macOS bundle verification before signing, after staging, and after mounting the finished DMG
+- Added broken-symbolic-link validation for the complete `.app` bundle
+- Added strict code-signature verification during the macOS build
+- Pinned PyInstaller 6.21.0 for reproducible package layout
+- Added runtime-bundle regression tests
+
 ## 2.0.0-alpha.2.2
 
 - Fixed monthly CDX requests still aborting a run when a broad site query timed out

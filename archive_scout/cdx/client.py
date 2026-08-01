@@ -15,6 +15,7 @@ from typing import Callable
 from ..constants import RETRYABLE_STATUS
 from ..downloads.rate_limit import AdaptiveRateLimiter
 from ..events import RateLimited, Stopped
+from ..runtime import FrozenBundleError, ensure_frozen_bundle_available, frozen_bundle_error_from_exception, is_missing_frozen_bundle_error
 from ..utils import clean_space
 
 try:
@@ -78,8 +79,10 @@ class HttpClient:
             "Connection": "close",
             "Accept-Encoding": "gzip",
         }
+        ensure_frozen_bundle_available()
         last_error: Exception | None = None
         for attempt in range(self.retries):
+            ensure_frozen_bundle_available()
             request = urllib.request.Request(url, headers=headers)
             try:
                 with self.limiter.slot(self.stop_event):
@@ -129,6 +132,8 @@ class HttpClient:
                     ) from exc
                 self.retry_wait(attempt, f"HTTP {exc.code}", retry_after)
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                if is_missing_frozen_bundle_error(exc):
+                    raise frozen_bundle_error_from_exception(exc) from exc
                 last_error = exc
                 timed_out = is_timeout_error(exc)
                 self.limiter.record_failure(None, None)
