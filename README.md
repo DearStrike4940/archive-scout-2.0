@@ -8,11 +8,11 @@ One repository now produces builds for Windows x64, Linux x64, and universal mac
 
 - [Download for Windows x64](../../releases/latest/download/ArchiveScout-Windows-x64.zip)
 - [Download for Linux x64](../../releases/latest/download/ArchiveScout-Linux-x64.tar.gz)
-- [Download for macOS Intel and Apple Silicon](../../releases/latest/download/ArchiveScout-macOS-Universal.dmg)
+- [Download for macOS Intel and Apple Silicon](../../releases/latest/download/ArchiveScout-macOS-Universal.zip)
 
 ### macOS installation
 
-Open the DMG, drag `Archive Scout.app` into `/Applications`, eject the DMG, and launch the installed copy. Quit Archive Scout completely before replacing it with a newer release. Do not move, rename, delete, or overwrite the `.app` while it is running; frozen Python applications continue loading bundled runtime files from the application bundle during use.
+Extract the ZIP, drag `Archive Scout.app` into `/Applications`, and launch the installed copy. Quit Archive Scout completely before replacing it with a newer release. Do not move, rename, delete, or overwrite the `.app` while it is running; frozen Python applications continue loading bundled runtime files from the application bundle during use.
 
 ## What is new in Alpha 2
 
@@ -251,7 +251,7 @@ A successful run creates Windows, Linux, and universal macOS artifacts. Pushing 
 
 ## Current status
 
-`2.0.0-alpha.2.4` is an alpha release. Keep backups of important projects and verify large media jobs with a narrow date range first.
+`2.0.0-alpha.2.5` is an alpha release. Keep backups of important projects and verify large media jobs with a narrow date range first.
 
 See [ROADMAP.md](ROADMAP.md), [docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/INDEXING_RECOVERY.md](docs/INDEXING_RECOVERY.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

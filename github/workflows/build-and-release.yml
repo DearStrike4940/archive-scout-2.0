@@ -94,8 +94,8 @@ jobs:
         with:
           name: ArchiveScout-macOS-Universal
           path: |
-            release/ArchiveScout-macOS-Universal.dmg
-            release/ArchiveScout-macOS-Universal.dmg.sha256
+            release/ArchiveScout-macOS-Universal.zip
+            release/ArchiveScout-macOS-Universal.zip.sha256
           if-no-files-found: error
 
   release:

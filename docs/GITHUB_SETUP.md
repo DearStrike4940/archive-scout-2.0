@@ -34,7 +34,7 @@ Open **Actions → Build All Platforms → Run workflow**. A successful manual r
 Publish the tag:
 
 ```text
-v2.0.0-alpha.2.4
+v2.0.0-alpha.2.5
 ```
 
 The tagged build uploads:
@@ -44,8 +44,8 @@ ArchiveScout-Windows-x64.zip
 ArchiveScout-Windows-x64.zip.sha256
 ArchiveScout-Linux-x64.tar.gz
 ArchiveScout-Linux-x64.tar.gz.sha256
-ArchiveScout-macOS-Universal.dmg
-ArchiveScout-macOS-Universal.dmg.sha256
+ArchiveScout-macOS-Universal.zip
+ArchiveScout-macOS-Universal.zip.sha256
 ```
 
 Do not use workflow-artifact URLs as public download links. The README points to GitHub Release assets.

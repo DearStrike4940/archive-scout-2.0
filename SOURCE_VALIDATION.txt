@@ -1,4 +1,4 @@
-Archive Scout 2.0.0-alpha.2.4 source validation
+Archive Scout 2.0.0-alpha.2.5 source validation
 
 Expected checks:
 - python -m compileall -q archive_scout scripts/verify_macos_bundle.py

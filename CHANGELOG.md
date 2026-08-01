@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0-alpha.2.5
+
+- Removed `hdiutil` from the macOS release pipeline after both direct and writable-image DMG workflows repeatedly failed with `Resource busy` on the hosted runner
+- Replaced the macOS DMG with `ArchiveScout-macOS-Universal.zip`
+- Packaged the signed universal application with `ditto -c -k --sequesterRsrc --keepParent` so bundle metadata, resource forks, and symbolic links are preserved
+- Extracted the completed ZIP into a clean temporary directory during the build
+- Re-ran bundle integrity and strict code-signature verification against the extracted release copy
+- Updated the workflow, README download link, release documentation, and checksums to use the macOS ZIP
+- Added a regression test preventing `hdiutil` and DMG packaging from returning to the alpha release workflow
+
 ## 2.0.0-alpha.2.4
 
 - Fixed the macOS build failing at `hdiutil create` with `Resource busy` after the application bundle had already built and verified successfully

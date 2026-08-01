@@ -5,14 +5,15 @@ from pathlib import Path
 
 
 class MacOSPackagingTests(unittest.TestCase):
-    def test_dmg_build_uses_writable_image_workflow(self) -> None:
+    def test_macos_build_uses_symlink_preserving_zip(self) -> None:
         script = Path("scripts/build_macos.sh").read_text(encoding="utf-8")
-        self.assertNotIn("-srcfolder", script)
-        self.assertIn("retry_hdiutil_create", script)
-        self.assertIn("hdiutil convert", script)
-        self.assertIn("RUNNER_TEMP", script)
-        self.assertIn("detach_image", script)
-        self.assertIn('ditto "$APP" "$MOUNT_POINT/Archive Scout.app"', script)
+        self.assertNotIn("hdiutil", script)
+        self.assertNotIn(".dmg", script)
+        self.assertIn("ArchiveScout-macOS-Universal.zip", script)
+        self.assertIn("ditto -c -k --sequesterRsrc --keepParent", script)
+        self.assertIn("ditto -x -k", script)
+        self.assertIn('python scripts/verify_macos_bundle.py "$EXTRACTED_APP"', script)
+        self.assertIn('codesign --verify --deep --strict --verbose=2 "$EXTRACTED_APP"', script)
 
 
 if __name__ == "__main__":

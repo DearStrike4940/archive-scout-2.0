@@ -1,7 +1,7 @@
 ARCHIVE SCOUT ALPHA 2 UPLOAD CHECKLIST
 
 1. Extract the repository ZIP.
-2. Open the archive-scout-2.0-alpha2.4 folder.
+2. Open the archive-scout-2.0-alpha2.5 folder.
 3. Reveal hidden files with Command + Shift + . on macOS.
 4. Upload the CONTENTS of that folder to the repository root.
 5. Confirm .github/workflows is present.
@@ -9,5 +9,5 @@ ARCHIVE SCOUT ALPHA 2 UPLOAD CHECKLIST
 7. Run the Tests workflow.
 8. Run Build All Platforms.
 9. Smoke-test the generated package.
-10. Publish tag v2.0.0-alpha.2.4.
+10. Publish tag v2.0.0-alpha.2.5.
 11. Confirm all three release downloads and checksum files are public.
