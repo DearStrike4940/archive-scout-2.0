@@ -186,32 +186,46 @@ CREATE TABLE IF NOT EXISTS duplicate_members(
 CREATE TABLE IF NOT EXISTS forum_threads(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     canonical_key TEXT NOT NULL UNIQUE,
+    canonical_url TEXT,
     title TEXT,
     profile TEXT,
+    first_timestamp TEXT,
+    last_timestamp TEXT,
+    post_count INTEGER NOT NULL DEFAULT 0,
+    document_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS forum_posts(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     thread_id INTEGER NOT NULL,
     document_id INTEGER NOT NULL,
+    capture_id INTEGER,
     post_key TEXT,
     username TEXT,
     posted_at TEXT,
     position INTEGER,
     body_text TEXT,
+    body_hash TEXT,
+    source_url TEXT,
     UNIQUE(thread_id,document_id,post_key),
     FOREIGN KEY(thread_id) REFERENCES forum_threads(id) ON DELETE CASCADE,
-    FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+    FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY(capture_id) REFERENCES captures(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS extractions(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     document_id INTEGER NOT NULL,
     extractor_name TEXT NOT NULL,
+    extractor_type TEXT NOT NULL DEFAULT 'regex',
+    field TEXT NOT NULL DEFAULT 'body',
     value TEXT NOT NULL,
     context TEXT,
+    start_offset INTEGER,
+    end_offset INTEGER,
     created_at TEXT NOT NULL,
     FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS extractions_value_idx ON extractions(extractor_name,value);
 CREATE TABLE IF NOT EXISTS snapshot_diffs(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     earlier_capture_id INTEGER NOT NULL,
@@ -270,6 +284,67 @@ CREATE TABLE IF NOT EXISTS media_index_state(
     FOREIGN KEY(target_id) REFERENCES media_targets(id) ON DELETE CASCADE,
     FOREIGN KEY(error_id) REFERENCES errors(id)
 );
+
+CREATE TABLE IF NOT EXISTS analysis_runs(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    metadata_json TEXT,
+    summary_json TEXT
+);
+CREATE TABLE IF NOT EXISTS legacy_assets(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL,
+    original_url TEXT NOT NULL,
+    resolved_url TEXT,
+    asset_type TEXT NOT NULL,
+    player TEXT,
+    external INTEGER NOT NULL DEFAULT 0,
+    archive_status TEXT NOT NULL DEFAULT 'discovered',
+    media_capture_id INTEGER,
+    context TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(document_id,original_url,asset_type),
+    FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY(media_capture_id) REFERENCES media_captures(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS legacy_assets_url_idx ON legacy_assets(original_url,archive_status);
+CREATE TABLE IF NOT EXISTS provenance_edges(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_document_id INTEGER NOT NULL,
+    mirror_document_id INTEGER NOT NULL,
+    method TEXT NOT NULL,
+    similarity REAL NOT NULL DEFAULT 1.0,
+    source_timestamp TEXT,
+    mirror_timestamp TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(source_document_id,mirror_document_id,method),
+    FOREIGN KEY(source_document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY(mirror_document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS provenance_source_idx ON provenance_edges(source_document_id,mirror_document_id);
+CREATE TABLE IF NOT EXISTS first_appearances(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT NOT NULL,
+    original_url TEXT NOT NULL,
+    first_capture_id INTEGER NOT NULL,
+    first_timestamp TEXT NOT NULL,
+    last_capture_id INTEGER,
+    last_timestamp TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(query,original_url),
+    FOREIGN KEY(first_capture_id) REFERENCES captures(id) ON DELETE CASCADE,
+    FOREIGN KEY(last_capture_id) REFERENCES captures(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS project_merges(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_path TEXT NOT NULL,
+    source_fingerprint TEXT NOT NULL UNIQUE,
+    merged_at TEXT NOT NULL,
+    summary_json TEXT
+);
 """
 
 
@@ -299,6 +374,25 @@ def migrate_v2_to_v3(database: sqlite3.Connection) -> None:
     database.execute("UPDATE schema_info SET version=3")
 
 
+def migrate_v3_to_v4(database: sqlite3.Connection) -> None:
+    database.executescript(BASE_SCHEMA_SQL)
+    add_column_if_missing(database, "forum_threads", "canonical_url TEXT")
+    add_column_if_missing(database, "forum_threads", "first_timestamp TEXT")
+    add_column_if_missing(database, "forum_threads", "last_timestamp TEXT")
+    add_column_if_missing(database, "forum_threads", "post_count INTEGER NOT NULL DEFAULT 0")
+    add_column_if_missing(database, "forum_threads", "document_count INTEGER NOT NULL DEFAULT 0")
+    add_column_if_missing(database, "forum_posts", "capture_id INTEGER")
+    add_column_if_missing(database, "forum_posts", "body_hash TEXT")
+    add_column_if_missing(database, "forum_posts", "source_url TEXT")
+    add_column_if_missing(database, "extractions", "extractor_type TEXT NOT NULL DEFAULT 'regex'")
+    add_column_if_missing(database, "extractions", "field TEXT NOT NULL DEFAULT 'body'")
+    add_column_if_missing(database, "extractions", "start_offset INTEGER")
+    add_column_if_missing(database, "extractions", "end_offset INTEGER")
+    database.execute("CREATE INDEX IF NOT EXISTS extractions_value_idx ON extractions(extractor_name,value)")
+    database.execute("CREATE INDEX IF NOT EXISTS forum_posts_thread_idx ON forum_posts(thread_id,position)")
+    database.execute("UPDATE schema_info SET version=4")
+
+
 def initialize_schema(database: sqlite3.Connection) -> None:
     database.execute("PRAGMA foreign_keys=ON")
     has_schema = database.execute(
@@ -313,6 +407,9 @@ def initialize_schema(database: sqlite3.Connection) -> None:
         version = int(row[0]) if row else 0
         if version == 2:
             migrate_v2_to_v3(database)
+            migrate_v3_to_v4(database)
+        elif version == 3:
+            migrate_v3_to_v4(database)
         elif version != SCHEMA_VERSION:
             raise RuntimeError(f"unsupported Archive Scout schema version: {version}")
         else:

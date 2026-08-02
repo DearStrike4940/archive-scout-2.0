@@ -14,7 +14,7 @@ Completed:
 
 ## Alpha 2 — Search, scoring, review, and media downloading
 
-Completed in this repository:
+Completed:
 
 - Built-in ranked results viewer
 - Review labels, notes, tags, filters, and exports
@@ -22,7 +22,8 @@ Completed in this repository:
 - Multiple named keyword sets in one pass
 - Instant offline full-text search
 - Scan history and comparison
-- Predictable fixed request pacing and clearer throttling guidance
+- Fixed user-controlled pacing and coordinated HTTP 429 recovery
+- Keep-alive HTTP pooling and bounded request queues
 - Better error controls
 - Image/video indexing and downloading
 - Extension inclusion and exclusion
@@ -31,18 +32,24 @@ Completed in this repository:
 
 ## Alpha 3 — Archive recovery and analysis
 
-Planned:
+Completed in this repository:
 
 - Forum post parsing and thread reconstruction
 - Forum URL canonicalization
+- Automatic and selectable forum profiles
 - Custom regular-expression extractors
 - Google Video `docid` and legacy identifier extraction
-- Legacy embed/player recovery
-- Controlled external-asset searching
+- Legacy Flash, Windows Media, RealPlayer, iframe, playlist, and script-config recovery
+- Controlled external-asset searching with an explicit domain allowlist
 - Exact and near-duplicate clustering
 - Source-to-mirror provenance tracking
-- Snapshot comparison and first-appearance searches
-- Project merging and shared review merging
+- Snapshot comparison
+- First-appearance and last-appearance searches
+- Project merging
+- Shared review, notes, tags, media, scan, and extraction merging
+- Schema version 4 migration
+- Noninterrupting transient CDX timeout recovery down to one-second windows
+- One combined direct-media CDX query for all selected extensions
 
 ## Alpha 4 — Integration, reliability, and feature freeze
 
@@ -52,7 +59,7 @@ Planned:
 - Pause, cancellation, resume, and crash recovery hardening
 - Per-target settings and queues
 - Import of older script-created archives
-- Database backup, restore, repair, and index rebuilding
+- Database backup, restore, repair, and index rebuilding controls
 - Final migration support for every alpha
 - Stress tests using hundreds of thousands of records
 - Project-format and database-schema freeze

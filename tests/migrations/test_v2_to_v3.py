@@ -20,7 +20,7 @@ class V2ToV3MigrationTests(unittest.TestCase):
             database.commit()
             database.close()
             modern = open_database(root)
-            self.assertEqual(modern.execute("SELECT version FROM schema_info").fetchone()[0], 3)
+            self.assertEqual(modern.execute("SELECT version FROM schema_info").fetchone()[0], 4)
             self.assertIn("rules_json", {row[1] for row in modern.execute("PRAGMA table_info(keyword_sets)")})
             self.assertIsNotNone(modern.execute("SELECT name FROM sqlite_master WHERE name='media_captures'").fetchone())
             modern.close()

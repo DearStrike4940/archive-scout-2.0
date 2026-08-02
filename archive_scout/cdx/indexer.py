@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import json
+import random
 import sqlite3
 import threading
 import time
@@ -24,6 +25,8 @@ class PendingWindow:
     start: str
     end: str
     resume_key: str | None = None
+    failures: int = 0
+    page_size: int = 0
 
 
 @dataclass(slots=True)
@@ -76,7 +79,7 @@ def encode_plan(plan: IndexPlan) -> str | None:
     if not plan.pending:
         return None
     payload = {
-        "version": 2,
+        "version": 3,
         "completed": int(plan.completed),
         "planned": int(plan.planned),
         "pending": [
@@ -84,6 +87,8 @@ def encode_plan(plan: IndexPlan) -> str | None:
                 "start": item.start,
                 "end": item.end,
                 "resume_key": item.resume_key,
+                "failures": int(item.failures),
+                "page_size": int(item.page_size),
             }
             for item in plan.pending
         ],
@@ -95,14 +100,23 @@ def decode_plan(value: str | None, default_windows: list[tuple[str, str]]) -> In
     if value and value.lstrip().startswith("{"):
         try:
             payload = json.loads(value)
-            if int(payload.get("version", 1)) == 2:
+            version = int(payload.get("version", 1))
+            if version in {2, 3}:
                 pending: list[PendingWindow] = []
                 for raw in payload.get("pending") or []:
                     start = str(raw["start"])
                     end = str(raw["end"])
                     if start <= end:
                         resume = raw.get("resume_key")
-                        pending.append(PendingWindow(start, end, str(resume) if resume else None))
+                        pending.append(
+                            PendingWindow(
+                                start,
+                                end,
+                                str(resume) if resume else None,
+                                max(0, int(raw.get("failures", 0))),
+                                max(0, int(raw.get("page_size", 0))),
+                            )
+                        )
                 completed = max(0, int(payload.get("completed", 0)))
                 planned = max(completed + len(pending), int(payload.get("planned", 0)))
                 if pending:
@@ -124,6 +138,7 @@ def decode_plan(value: str | None, default_windows: list[tuple[str, str]]) -> In
 
 
 def split_window(window: PendingWindow) -> list[PendingWindow]:
+    """Split a failed CDX interval down to one-second windows when necessary."""
     start_dt = datetime.strptime(window.start, "%Y%m%d%H%M%S")
     end_dt = datetime.strptime(window.end, "%Y%m%d%H%M%S")
     duration = end_dt - start_dt
@@ -136,6 +151,18 @@ def split_window(window: PendingWindow) -> list[PendingWindow]:
         chunk = timedelta(hours=6)
     elif duration >= timedelta(hours=2):
         chunk = timedelta(hours=1)
+    elif duration >= timedelta(minutes=30):
+        chunk = timedelta(minutes=15)
+    elif duration >= timedelta(minutes=10):
+        chunk = timedelta(minutes=5)
+    elif duration >= timedelta(minutes=2):
+        chunk = timedelta(minutes=1)
+    elif duration >= timedelta(seconds=30):
+        chunk = timedelta(seconds=15)
+    elif duration >= timedelta(seconds=10):
+        chunk = timedelta(seconds=5)
+    elif duration >= timedelta(seconds=2):
+        chunk = timedelta(seconds=1)
     else:
         return []
 
@@ -148,6 +175,8 @@ def split_window(window: PendingWindow) -> list[PendingWindow]:
                 cursor.strftime("%Y%m%d%H%M%S"),
                 part_end.strftime("%Y%m%d%H%M%S"),
                 None,
+                0,
+                max(25, window.page_size // 2) if window.page_size else 0,
             )
         )
         cursor = part_end + timedelta(seconds=1)
@@ -160,12 +189,19 @@ def window_label(start: str, end: str) -> str:
     if start_date.date() == end_date.date():
         if start_date.hour == 0 and start_date.minute == 0 and end_date.hour == 23 and end_date.minute == 59:
             return start_date.strftime("%Y-%m-%d")
+        if start_date.hour == end_date.hour and start_date.minute == end_date.minute:
+            return f"{start_date:%Y-%m-%d %H:%M:%S}–{end_date:%H:%M:%S}"
         return f"{start_date:%Y-%m-%d %H:%M}–{end_date:%H:%M}"
     if start_date.day == 1 and end_date.month == start_date.month:
         last_day = calendar.monthrange(start_date.year, start_date.month)[1]
         if end_date.day == last_day:
             return start_date.strftime("%Y-%m")
     return f"{start_date:%Y-%m-%d}–{end_date:%Y-%m-%d}"
+
+
+def transient_backoff(failures: int) -> float:
+    base = min(300.0, 5.0 * (2 ** min(max(0, failures - 1), 6)))
+    return base * random.uniform(0.85, 1.15)
 
 
 def save_state(
@@ -193,6 +229,63 @@ def save_state(
     )
 
 
+def _defer_transient_window(
+    config: ProjectConfig,
+    database: sqlite3.Connection,
+    plan: IndexPlan,
+    current: PendingWindow,
+    target_id: int,
+    year: int,
+    signature: str,
+    seen: int,
+    error_id: int | None,
+    exc: BaseException,
+    callback: Callable[[ProgressEvent], None] | None,
+    completed_windows: int,
+    total_windows: int,
+    stop_event: threading.Event,
+) -> int:
+    current.failures += 1
+    current.page_size = max(25, (current.page_size or config.page_size) // 2)
+    message = f"{type(exc).__name__}: {exc}"
+    with database:
+        error_id = record_error(
+            database,
+            "index",
+            "transient_index_delay",
+            f"{window_label(current.start, current.end)}: {message}",
+            retryable=True,
+        )
+        if len(plan.pending) > 1:
+            plan.pending.append(plan.pending.pop(0))
+        save_state(database, target_id, year, signature, encode_plan(plan), False, seen, error_id)
+    if len(plan.pending) > 1:
+        emit(
+            callback,
+            ProgressEvent(
+                "index",
+                f"Wayback did not answer this smallest window. It was moved behind the remaining windows and will retry automatically (page size {current.page_size}).",
+                completed_windows,
+                total_windows,
+            ),
+        )
+        return error_id
+    wait_seconds = transient_backoff(current.failures)
+    emit(
+        callback,
+        ProgressEvent(
+            "index",
+            f"Wayback did not answer the smallest remaining window. Archive Scout is staying alive and will retry in {wait_seconds:.1f}s (attempt {current.failures + 1}, page size {current.page_size}).",
+            completed_windows,
+            total_windows,
+        ),
+    )
+    stop_event.wait(wait_seconds)
+    if stop_event.is_set():
+        raise Stopped
+    return error_id
+
+
 def index_archive(
     config: ProjectConfig,
     database: sqlite3.Connection,
@@ -212,7 +305,7 @@ def index_archive(
 
     client = HttpClient(
         limiter,
-        min(config.retries, 3),
+        min(config.retries, 2),
         min(max(config.read_timeout, 15.0), 45.0),
         config.user_agent,
         stop_event,
@@ -221,27 +314,15 @@ def index_archive(
         read_timeout=min(max(config.read_timeout, 15.0), 45.0),
         pool_size=1,
         host_gate=host_gate,
-        rate_limit_attempts=config.rate_limit_attempts,
-        rate_limit_max_wait=config.rate_limit_max_wait,
+        rate_limit_attempts=0,
+        rate_limit_max_wait=0,
     )
     signature = cdx_query_signature(config)
     if not config.cdx_collapses:
-        emit(
-            callback,
-            ProgressEvent(
-                "index",
-                "Warning: no CDX collapse is selected. Every archived snapshot may be returned, which can make broad site queries much slower.",
-            ),
-        )
+        emit(callback, ProgressEvent("index", "Warning: no CDX collapse is selected. Every archived snapshot may be returned, which can make broad site queries much slower."))
     for target in config.targets:
         if target.endswith("*") and "/" not in target[:-1]:
-            emit(
-                callback,
-                ProgressEvent(
-                    "index",
-                    f"Warning: target {target} is unusually broad. For the whole site, {target[:-1].rstrip('/')}/* is normally clearer.",
-                ),
-            )
+            emit(callback, ProgressEvent("index", f"Warning: target {target} is unusually broad. For the whole site, {target[:-1].rstrip('/')}/* is normally clearer."))
     tasks: list[tuple[str, int, list[tuple[str, str]]]] = []
     for target in config.targets:
         for year in range(config.from_year, config.to_year + 1):
@@ -251,234 +332,113 @@ def index_archive(
 
     total_windows = sum(len(windows) for _, _, windows in tasks)
     completed_windows = 0
-
-    for target, year, default_windows in tasks:
-        if stop_event.is_set():
-            raise Stopped
-        target_id = get_or_create_target(database, target)
-        state = database.execute(
-            """
-            SELECT resume_key,complete,seen,error_id
-            FROM index_state
-            WHERE target_id=? AND year=? AND query_signature=?
-            """,
-            (target_id, year, signature),
-        ).fetchone()
-
-        if state and state["complete"]:
-            completed_windows += len(default_windows)
-            emit(
-                callback,
-                ProgressEvent(
-                    "index",
-                    f"Already indexed {target} for {year}",
-                    completed_windows,
-                    total_windows,
-                ),
-            )
-            continue
-
-        seen = int(state["seen"] or 0) if state else 0
-        error_id = int(state["error_id"]) if state and state["error_id"] else None
-        plan = decode_plan(state["resume_key"] if state else None, default_windows)
-        completed_windows += plan.completed
-        total_windows += max(0, plan.planned - len(default_windows))
-
-        while plan.pending:
+    try:
+        for target, year, default_windows in tasks:
             if stop_event.is_set():
-                with database:
-                    save_state(
-                        database,
-                        target_id,
-                        year,
-                        signature,
-                        encode_plan(plan),
-                        False,
-                        seen,
-                        error_id,
-                    )
                 raise Stopped
+            target_id = get_or_create_target(database, target)
+            state = database.execute(
+                "SELECT resume_key,complete,seen,error_id FROM index_state WHERE target_id=? AND year=? AND query_signature=?",
+                (target_id, year, signature),
+            ).fetchone()
+            if state and state["complete"]:
+                completed_windows += len(default_windows)
+                emit(callback, ProgressEvent("index", f"Already indexed {target} for {year}", completed_windows, total_windows))
+                continue
 
-            current = plan.pending[0]
-            label = window_label(current.start, current.end)
-            params = build_cdx_params(config, target, current.start, current.end, current.resume_key)
-            emit(
-                callback,
-                ProgressEvent(
-                    "index",
-                    f"Indexing {target} for {label}…",
-                    completed_windows,
-                    total_windows,
-                ),
-            )
-            request_started = time.monotonic()
-            try:
-                payload = client.get_json(CDX_URL, params)
-                request_seconds = time.monotonic() - request_started
-                rows, next_resume = parse_cdx(payload)
-                write_started = time.monotonic()
-                with database:
-                    changed = upsert_captures(database, rows, target_id, signature)
-                    seen += len(rows)
-                    if next_resume:
-                        if next_resume == current.resume_key:
-                            raise RuntimeError("CDX returned the same resume key twice")
-                        current.resume_key = next_resume
-                    else:
-                        plan.pending.pop(0)
-                        plan.completed += 1
-                        completed_windows += 1
-                    complete = not plan.pending
-                    save_state(
-                        database,
-                        target_id,
-                        year,
-                        signature,
-                        encode_plan(plan),
-                        complete,
-                        seen,
-                        None if complete else error_id,
-                    )
-                    if complete and error_id:
-                        database.execute(
-                            "UPDATE errors SET resolved=1,last_seen=? WHERE id=?",
-                            (utc_now(), error_id),
-                        )
-                write_seconds = time.monotonic() - write_started
-                emit(
-                    callback,
-                    ProgressEvent(
-                        "index",
-                        (
-                            f"{target} {label}: received {len(rows):,}, stored {changed:,}, "
-                            f"seen {seen:,} — CDX {request_seconds:.1f}s, database {write_seconds:.2f}s"
-                        ),
-                        completed_windows,
-                        total_windows,
-                    ),
-                )
-            except Stopped:
-                with database:
-                    save_state(
-                        database,
-                        target_id,
-                        year,
-                        signature,
-                        encode_plan(plan),
-                        False,
-                        seen,
-                        error_id,
-                    )
-                raise
-            except RateLimitDeferred:
-                with database:
-                    save_state(
-                        database,
-                        target_id,
-                        year,
-                        signature,
-                        encode_plan(plan),
-                        False,
-                        seen,
-                        error_id,
-                    )
-                emit(
-                    callback,
-                    ProgressEvent(
-                        "rate_limit",
-                        "Wayback remained rate limited beyond the configured wait budget. Index progress was saved for Resume.",
-                        completed_windows,
-                        total_windows,
-                    ),
-                )
-                raise
-            except TransientRequestError as exc:
-                parts = split_window(current) if exc.splittable else []
-                if parts:
-                    plan.pending[0:1] = parts
-                    added = len(parts) - 1
-                    plan.planned += added
-                    total_windows += added
+            seen = int(state["seen"] or 0) if state else 0
+            error_id = int(state["error_id"]) if state and state["error_id"] else None
+            plan = decode_plan(state["resume_key"] if state else None, default_windows)
+            completed_windows += plan.completed
+            total_windows += max(0, plan.planned - len(default_windows))
+
+            while plan.pending:
+                if stop_event.is_set():
                     with database:
-                        save_state(
-                            database,
-                            target_id,
-                            year,
-                            signature,
-                            encode_plan(plan),
-                            False,
-                            seen,
-                            error_id,
-                        )
+                        save_state(database, target_id, year, signature, encode_plan(plan), False, seen, error_id)
+                    raise Stopped
+                current = plan.pending[0]
+                label = window_label(current.start, current.end)
+                page_size = current.page_size or config.page_size
+                params = build_cdx_params(config, target, current.start, current.end, current.resume_key, page_size=page_size)
+                emit(callback, ProgressEvent("index", f"Indexing {target} for {label}…", completed_windows, total_windows))
+                request_started = time.monotonic()
+                try:
+                    payload = client.get_json(CDX_URL, params)
+                    request_seconds = time.monotonic() - request_started
+                    rows, next_resume = parse_cdx(payload)
+                    write_started = time.monotonic()
+                    with database:
+                        changed = upsert_captures(database, rows, target_id, signature)
+                        seen += len(rows)
+                        current.failures = 0
+                        if next_resume:
+                            if next_resume == current.resume_key:
+                                raise TransientRequestError("CDX returned the same resume key twice", splittable=True)
+                            current.resume_key = next_resume
+                        else:
+                            plan.pending.pop(0)
+                            plan.completed += 1
+                            completed_windows += 1
+                        complete = not plan.pending
+                        save_state(database, target_id, year, signature, encode_plan(plan), complete, seen, None if complete else error_id)
+                        if error_id:
+                            database.execute("UPDATE errors SET resolved=1,last_seen=? WHERE id=?", (utc_now(), error_id))
+                            error_id = None
+                    write_seconds = time.monotonic() - write_started
                     emit(
                         callback,
                         ProgressEvent(
                             "index",
-                            (
-                                f"CDX timed out for {target} {label}. "
-                                f"Automatically split it into {len(parts)} smaller windows and continuing."
-                            ),
+                            f"{target} {label}: received {len(rows):,}, stored {changed:,}, seen {seen:,} — CDX {request_seconds:.1f}s, database {write_seconds:.2f}s",
                             completed_windows,
                             total_windows,
                         ),
                     )
+                except Stopped:
+                    with database:
+                        save_state(database, target_id, year, signature, encode_plan(plan), False, seen, error_id)
+                    raise
+                except RateLimitDeferred as exc:
+                    # Indexing never aborts for a temporary rate limit. Save and retry.
+                    error_id = _defer_transient_window(
+                        config, database, plan, current, target_id, year, signature, seen, error_id,
+                        exc, callback, completed_windows, total_windows, stop_event,
+                    )
                     continue
-                category = "index_failure"
-                message = f"{target} {label}: {type(exc).__name__}: {exc}"
-                with database:
-                    error_id = record_error(database, "index", category, message, retryable=True)
-                    save_state(
-                        database,
-                        target_id,
-                        year,
-                        signature,
-                        encode_plan(plan),
-                        False,
-                        seen,
-                        error_id,
+                except TransientRequestError as exc:
+                    parts = split_window(current) if exc.splittable else []
+                    if parts:
+                        plan.pending[0:1] = parts
+                        added = len(parts) - 1
+                        plan.planned += added
+                        total_windows += added
+                        with database:
+                            save_state(database, target_id, year, signature, encode_plan(plan), False, seen, error_id)
+                        emit(
+                            callback,
+                            ProgressEvent(
+                                "index",
+                                f"CDX timed out for {target} {label}. Automatically split it into {len(parts)} smaller windows and continuing.",
+                                completed_windows,
+                                total_windows,
+                            ),
+                        )
+                        continue
+                    error_id = _defer_transient_window(
+                        config, database, plan, current, target_id, year, signature, seen, error_id,
+                        exc, callback, completed_windows, total_windows, stop_event,
                     )
-                emit(
-                    callback,
-                    ProgressEvent(
-                        "index",
-                        f"Indexing failed for {target} {label}. Progress was saved.",
-                        completed_windows,
-                        total_windows,
-                    ),
-                )
-                raise
-            except Exception as exc:
-                category = "index_failure"
-                message = f"{target} {label}: {type(exc).__name__}: {exc}"
-                with database:
-                    error_id = record_error(database, "index", category, message, retryable=True)
-                    save_state(
-                        database,
-                        target_id,
-                        year,
-                        signature,
-                        encode_plan(plan),
-                        False,
-                        seen,
-                        error_id,
-                    )
-                emit(
-                    callback,
-                    ProgressEvent(
-                        "index",
-                        f"Indexing failed for {target} {label}. Progress was saved.",
-                        completed_windows,
-                        total_windows,
-                    ),
-                )
-                raise
-
-        emit(
-            callback,
-            ProgressEvent(
-                "index",
-                f"Finished {target} for {year}",
-                completed_windows,
-                total_windows,
-            ),
-        )
+                    continue
+                except Exception as exc:
+                    # Configuration/permission errors are not transient; preserving them as
+                    # explicit failures avoids an infinite loop around a malformed query.
+                    message = f"{target} {label}: {type(exc).__name__}: {exc}"
+                    with database:
+                        error_id = record_error(database, "index", "index_failure", message, retryable=False)
+                        save_state(database, target_id, year, signature, encode_plan(plan), False, seen, error_id)
+                    emit(callback, ProgressEvent("index", f"Indexing stopped on a non-transient error for {target} {label}. Progress was saved.", completed_windows, total_windows))
+                    raise
+            emit(callback, ProgressEvent("index", f"Finished {target} for {year}", completed_windows, total_windows))
+    finally:
+        client.close()

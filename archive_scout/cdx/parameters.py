@@ -44,6 +44,7 @@ def build_cdx_params(
     start: str,
     end: str,
     resume: str | None = None,
+    page_size: int | None = None,
 ) -> list[tuple[str, str]]:
     params = [
         ("url", cdx_target_value(target, config.cdx_match_type)),
@@ -57,7 +58,7 @@ def build_cdx_params(
     params.extend(("filter", value) for value in config.cdx_filters)
     params.extend(("collapse", value) for value in config.cdx_collapses)
     params.extend(parse_cdx_parameter_lines(config.cdx_extra_params))
-    params.extend([("limit", str(config.page_size)), ("showResumeKey", "true")])
+    params.extend([("limit", str(page_size or config.page_size)), ("showResumeKey", "true")])
     if resume:
         params.append(("resumeKey", resume))
     return params

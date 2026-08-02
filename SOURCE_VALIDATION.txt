@@ -1,16 +1,21 @@
-Archive Scout 2.0.0-alpha.2.7 source validation
+Archive Scout 2.0.0-alpha.3 source validation
 
 Completed locally before packaging:
-- 49 unit, migration, and integration tests passed
+- 61 unit, migration, and integration tests passed
 - python -m compileall completed for archive_scout and tests
-- Tkinter interface instantiated successfully with all 9 tabs in a virtual display
-- workflow YAML files parsed successfully
+- Tkinter interface instantiated successfully with all 10 tabs in a virtual display
+- both GitHub workflow YAML files parsed successfully
 - Linux and macOS build scripts passed bash syntax validation
-- pooled HTTP redirect and gzip response reuse passed against a local HTTP server
-- repeated HTTP 429 handling, unlimited coordinated waiting, optional deferral, stale-permit rejection, and one-probe recovery passed automated tests
+- schema version 2 and schema version 3 migration paths passed automated tests
+- one-hour and one-second CDX timeout recovery passed automated tests
+- combined direct-media extension indexing passed automated tests
+- forum reconstruction, built-in/custom extraction, legacy embed recovery, external asset lookup, duplicate clustering, snapshot comparison, provenance, and project merging passed automated tests
+- project merge rebuilt the full-text search index in automated testing
 - no live Internet Archive load or stress test was performed
 
 Still required on GitHub:
 - Tests workflow on Windows, Linux, and macOS
 - Build All Platforms workflow
 - smoke test each packaged application
+- migration smoke test using a backup copy of a real Alpha 2 project
+- limited live Wayback test before a large production run

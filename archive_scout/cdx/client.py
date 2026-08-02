@@ -282,6 +282,13 @@ class HttpClient:
             return json.loads(raw)
         except json.JSONDecodeError as exc:
             preview = clean_space(raw[:500])
+            lowered = preview.casefold()
+            transient_markers = ("gateway", "temporarily unavailable", "timeout", "server error", "rate limit", "too many requests", "<html")
+            if any(marker in lowered for marker in transient_markers):
+                raise TransientRequestError(
+                    f"CDX returned transient non-JSON content: {preview}",
+                    splittable=True,
+                ) from exc
             raise RuntimeError(f"CDX returned non-JSON content: {preview}") from exc
 
     def retry_wait(self, attempt: int, reason: str, retry_after: float | None = None) -> None:

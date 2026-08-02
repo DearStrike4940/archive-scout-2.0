@@ -17,7 +17,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from ..cdx.client import RateLimitDeferred
 from ..cdx.parameters import build_cdx_params, cdx_year_window
-from ..config import KeywordSetConfig, MediaConfig, ProjectConfig, load_project_config, save_project_config
+from ..config import AnalysisConfig, KeywordSetConfig, MediaConfig, ProjectConfig, load_project_config, save_project_config
 from ..constants import APP_NAME, CDX_URL, DEFAULT_IMAGE_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS, OPERATION_MODES, REVIEW_STATUSES, SCOPE_LABELS, VERSION
 from ..database.connection import open_database
 from ..database.repositories import (
@@ -55,6 +55,9 @@ MODE_HELP = {
     "media_index": "Indexes selected image and video URLs without downloading the files.",
     "media_download": "Downloads pending media records already stored in this project.",
     "media_retry": "Retries only unresolved media download errors.",
+    "analysis": "Reconstructs forum threads, extracts identifiers and legacy embeds, clusters duplicates, compares snapshots, and builds provenance reports.",
+    "forum_rebuild": "Rebuilds forum threads and posts from saved pages without rerunning the rest of the Alpha 3 analysis.",
+    "merge_project": "Merges captures, downloads, scans, reviews, notes, tags, media, and extraction results from another Archive Scout project.",
 }
 REVIEW_LABELS = {
     "Unreviewed": "unreviewed",
@@ -156,6 +159,15 @@ class ArchiveScoutApp(tk.Tk):
         self.fts_field_var = tk.StringVar(value="all")
         self.fts_domain_var = tk.StringVar()
         self.error_category_var = tk.StringVar(value="All")
+        self.forum_profile_var = tk.StringVar(value="auto")
+        self.analysis_threads_var = tk.BooleanVar(value=True)
+        self.analysis_embeds_var = tk.BooleanVar(value=True)
+        self.analysis_external_var = tk.BooleanVar(value=False)
+        self.analysis_external_limit_var = tk.StringVar(value="5000")
+        self.analysis_duplicate_var = tk.StringVar(value="0.90")
+        self.analysis_compare_var = tk.BooleanVar(value=True)
+        self.analysis_provenance_var = tk.BooleanVar(value=True)
+        self.analysis_merge_source_var = tk.StringVar(value="")
 
     def create_ui(self) -> None:
         self.columnconfigure(0, weight=1)
@@ -189,6 +201,7 @@ class ArchiveScoutApp(tk.Tk):
         self.create_keywords_tab()
         self.create_cdx_tab()
         self.create_media_tab()
+        self.create_analysis_tab()
         self.create_settings_tab()
         self.create_results_tab()
         self.create_history_tab()
@@ -325,6 +338,73 @@ class ArchiveScoutApp(tk.Tk):
         ttk.Label(settings, text="Maximum media size (MB):").grid(row=0, column=2)
         ttk.Entry(settings, textvariable=self.media_max_var, width=10).grid(row=0, column=3, padx=(5, 15))
         ttk.Checkbutton(settings, text="Preserve original path structure", variable=self.media_preserve_var).grid(row=0, column=4)
+
+
+    def create_analysis_tab(self) -> None:
+        tab = ttk.Frame(self.notebook, padding=10)
+        tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, weight=1)
+        tab.rowconfigure(3, weight=1)
+        self.notebook.add(tab, text="Archive analysis")
+
+        top = ttk.Frame(tab)
+        top.grid(row=0, column=0, columnspan=2, sticky="ew")
+        ttk.Checkbutton(top, text="Reconstruct forum threads and posts", variable=self.analysis_threads_var).grid(row=0, column=0, sticky="w")
+        ttk.Label(top, text="Forum profile:").grid(row=0, column=1, padx=(18, 4))
+        ttk.Combobox(
+            top,
+            textvariable=self.forum_profile_var,
+            values=("auto", "generic", "vbulletin", "phpbb", "invision", "futaba", "2channel"),
+            state="readonly",
+            width=12,
+        ).grid(row=0, column=2)
+        ttk.Checkbutton(top, text="Recover legacy embeds and players", variable=self.analysis_embeds_var).grid(row=0, column=3, padx=(18, 0))
+        ttk.Checkbutton(top, text="Compare snapshots", variable=self.analysis_compare_var).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Checkbutton(top, text="Build source-to-mirror provenance", variable=self.analysis_provenance_var).grid(row=1, column=1, columnspan=2, sticky="w", padx=(18, 0), pady=(6, 0))
+        ttk.Label(top, text="Near-duplicate threshold:").grid(row=1, column=3, sticky="e", padx=(18, 4), pady=(6, 0))
+        ttk.Entry(top, textvariable=self.analysis_duplicate_var, width=8).grid(row=1, column=4, sticky="w", pady=(6, 0))
+
+        external = ttk.Frame(tab)
+        external.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 6))
+        external.columnconfigure(4, weight=1)
+        ttk.Checkbutton(external, text="Search Wayback for discovered external assets", variable=self.analysis_external_var).grid(row=0, column=0, sticky="w")
+        ttk.Label(external, text="Maximum lookups:").grid(row=0, column=1, padx=(14, 4))
+        ttk.Entry(external, textvariable=self.analysis_external_limit_var, width=9).grid(row=0, column=2)
+        ttk.Label(external, text="Only explicitly allowed domains are searched.").grid(row=0, column=3, padx=(14, 0), sticky="w")
+
+        labels = ttk.Frame(tab)
+        labels.grid(row=2, column=0, columnspan=2, sticky="ew")
+        labels.columnconfigure(0, weight=1)
+        labels.columnconfigure(1, weight=1)
+        ttk.Label(labels, text="Custom extractors: name :: regex or name :: field :: regex").grid(row=0, column=0, sticky="w")
+        ttk.Label(labels, text="Allowed external domains, one per line").grid(row=0, column=1, sticky="w", padx=(12, 0))
+
+        editors = ttk.Frame(tab)
+        editors.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(4, 8))
+        editors.columnconfigure(0, weight=1)
+        editors.columnconfigure(1, weight=1)
+        editors.rowconfigure(0, weight=1)
+        self.analysis_extractors_text = tk.Text(editors, wrap="none", font="TkFixedFont")
+        self.analysis_extractors_text.grid(row=0, column=0, sticky="nsew")
+        self.analysis_domains_text = tk.Text(editors, wrap="none", font="TkFixedFont")
+        self.analysis_domains_text.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
+
+        merge = ttk.LabelFrame(tab, text="Project and shared-review merge", padding=8)
+        merge.grid(row=4, column=0, columnspan=2, sticky="ew")
+        merge.columnconfigure(1, weight=1)
+        ttk.Label(merge, text="Source project folder:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(merge, textvariable=self.analysis_merge_source_var).grid(row=0, column=1, sticky="ew", padx=8)
+        ttk.Button(merge, text="Browse…", command=self.choose_merge_source).grid(row=0, column=2)
+        ttk.Label(
+            merge,
+            text="Choose the ‘Merge another Archive Scout project’ operation to copy captures, documents, media, scan history, reviews, notes, tags, and extraction results into this project.",
+            wraplength=920,
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
+
+    def choose_merge_source(self) -> None:
+        selected = filedialog.askdirectory(title="Choose Archive Scout project to merge")
+        if selected:
+            self.analysis_merge_source_var.set(selected)
 
     def create_settings_tab(self) -> None:
         tab = ttk.Frame(self.notebook, padding=14)
@@ -591,6 +671,19 @@ class ArchiveScoutApp(tk.Tk):
                 max_file_mb=float(self.media_max_var.get()),
                 preserve_paths=self.media_preserve_var.get(),
             )
+            analysis = AnalysisConfig(
+                forum_profile=self.forum_profile_var.get(),
+                reconstruct_threads=self.analysis_threads_var.get(),
+                extract_legacy_embeds=self.analysis_embeds_var.get(),
+                extractor_rules=self.lines_from(self.analysis_extractors_text),
+                search_external_assets=self.analysis_external_var.get(),
+                external_domains=self.lines_from(self.analysis_domains_text),
+                external_asset_limit=int(self.analysis_external_limit_var.get()),
+                duplicate_threshold=float(self.analysis_duplicate_var.get()),
+                compare_snapshots=self.analysis_compare_var.get(),
+                build_provenance=self.analysis_provenance_var.get(),
+                merge_source=self.analysis_merge_source_var.get(),
+            )
             config = ProjectConfig(
                 output_dir=Path(self.output_var.get()),
                 targets=self.lines_from(self.targets_text),
@@ -616,6 +709,7 @@ class ArchiveScoutApp(tk.Tk):
                 rate_limit_max_pause=float(self.rate_limit_max_var.get()),
                 rate_limit_max_wait=float(self.rate_limit_wait_var.get()) * 60.0,
                 media=media,
+                analysis=analysis,
             ).normalized()
         except (ValueError, KeyError) as exc:
             raise ValueError(f"Check the numeric settings, keyword rules, and target lines: {exc}") from exc
@@ -624,6 +718,8 @@ class ArchiveScoutApp(tk.Tk):
             raise ValueError("Add at least one site or path.")
         if require_keywords and mode in {"all", "download", "resume", "rescan", "retry_errors"} and not config.selected_keyword_sets():
             raise ValueError("Select at least one non-empty keyword set.")
+        if mode == "merge_project" and not config.analysis.merge_source:
+            raise ValueError("Choose a source project folder in Archive analysis.")
         return config
 
     def preview_cdx(self) -> None:
@@ -1120,6 +1216,18 @@ class ArchiveScoutApp(tk.Tk):
         self.media_strategy_var.set(media.snapshot_strategy)
         self.media_max_var.set(str(media.max_file_mb))
         self.media_preserve_var.set(media.preserve_paths)
+        analysis = config.analysis
+        self.forum_profile_var.set(analysis.forum_profile)
+        self.analysis_threads_var.set(analysis.reconstruct_threads)
+        self.analysis_embeds_var.set(analysis.extract_legacy_embeds)
+        self.replace_text(self.analysis_extractors_text, analysis.extractor_rules)
+        self.analysis_external_var.set(analysis.search_external_assets)
+        self.replace_text(self.analysis_domains_text, analysis.external_domains)
+        self.analysis_external_limit_var.set(str(analysis.external_asset_limit))
+        self.analysis_duplicate_var.set(str(analysis.duplicate_threshold))
+        self.analysis_compare_var.set(analysis.compare_snapshots)
+        self.analysis_provenance_var.set(analysis.build_provenance)
+        self.analysis_merge_source_var.set(analysis.merge_source)
 
     def state_path(self) -> Path:
         return app_support_dir() / "settings.json"

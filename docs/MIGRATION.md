@@ -1,12 +1,14 @@
 # Migration
 
-Archive Scout Alpha 2 uses database schema version 3.
+Archive Scout Alpha 3 uses database schema version 4.
+
+## From Alpha 2
+
+Schema version 3 databases are upgraded in place when opened. Alpha 3 adds analysis, forum, extraction, provenance, first-appearance, and project-merge storage while preserving captures, documents, media, scans, reviews, notes, tags, errors, and local files.
 
 ## From Alpha 1
 
-Schema version 2 databases are upgraded in place when opened. New columns and media tables are added while captures, documents, scans, reports, errors, and local files remain intact.
-
-Make an external copy of the project folder before opening an important project in a newer alpha.
+Schema version 2 databases are upgraded through schema version 3 to version 4 in one open operation.
 
 ## From Archive Scout 1.x
 
@@ -18,12 +20,12 @@ archive_scout.v1.backup.sqlite3
 
 A new database is built, existing documents are imported, and previous matches are retained as a legacy scan run.
 
-## After migration
+## Before and after migration
 
-Run **Check project integrity** and inspect:
+Make an external copy of the complete project folder before opening an important project in a newer alpha. After migration, run **Check project integrity** and inspect:
 
 ```text
 reports/integrity.txt
 ```
 
-Do not delete the backup until the migrated project has been tested.
+Do not delete the version 1 backup until the migrated project has been tested.

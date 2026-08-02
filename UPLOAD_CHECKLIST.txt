@@ -1,13 +1,15 @@
-ARCHIVE SCOUT ALPHA 2 UPLOAD CHECKLIST
+ARCHIVE SCOUT ALPHA 3 UPLOAD CHECKLIST
 
 1. Extract the repository ZIP.
-2. Open the archive-scout-2.0-alpha2.5 folder.
+2. Open the archive-scout-2.0-alpha3 folder.
 3. Reveal hidden files with Command + Shift + . on macOS.
 4. Upload the CONTENTS of that folder to the repository root.
 5. Confirm .github/workflows is present.
 6. Confirm requirements-runtime.txt and requirements-build.txt are at the root.
 7. Run the Tests workflow.
-8. Run Build All Platforms.
-9. Smoke-test the generated package.
-10. Publish tag v2.0.0-alpha.2.5.
-11. Confirm all three release downloads and checksum files are public.
+8. Run Build All Platforms from the newest main commit.
+9. Smoke-test the generated Windows, Linux, and macOS packages.
+10. Back up and open an Alpha 2 project to test schema version 4 migration.
+11. Test one archive-analysis run and one combined media-index run.
+12. Publish tag v2.0.0-alpha.3.
+13. Confirm all three release downloads and checksum files are public.

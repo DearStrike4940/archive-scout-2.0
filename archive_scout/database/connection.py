@@ -25,7 +25,7 @@ def database_version(path: Path) -> int | None:
 
 
 def is_modern_database(path: Path) -> bool:
-    return database_version(path) in {2, SCHEMA_VERSION}
+    return database_version(path) in {2, 3, SCHEMA_VERSION}
 
 
 def open_database(root: Path, migrate: bool = True) -> sqlite3.Connection:

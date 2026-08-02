@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0-alpha.3
+
+- Added schema version 4 and automatic migration from schema versions 2 and 3
+- Added forum URL canonicalization, forum-profile detection, post parsing, and cross-snapshot thread reconstruction
+- Added built-in Google Video `docid`, YouTube, Internet Archive, Flash, Windows Media, RealMedia, and legacy uploader extraction
+- Added custom field-aware regular-expression extractors with context and source offsets
+- Added legacy `object`, `embed`, `param`, iframe, frame, audio/video, FlashVars, and script-config asset recovery
+- Added controlled external-asset Wayback lookup with explicit domain allowlists and lookup limits
+- Added exact duplicate grouping and SimHash-based near-duplicate clustering
+- Added source-to-mirror provenance edges and provenance reports
+- Added adjacent snapshot comparison and first/last-appearance reports
+- Added full project merging for captures, documents, media, scans, matches, reviews, notes, tags, and extractions
+- Rebuilt SQLite full-text search automatically after project merges
+- Added archive-analysis, forum-only rebuild, and project-merge operations to the interface
+- Extended CDX timeout subdivision from one-hour windows down through 15-minute, five-minute, one-minute, 15-second, five-second, and one-second windows
+- Changed smallest-window transient failures from fatal errors into saved, automatically retried work with reduced page sizes and bounded backoff
+- Converted `urllib3` read timeouts and transient non-JSON gateway responses into resumable CDX failures
+- Reworked direct media indexing to use one combined server-side extension filter per target and date window instead of one CDX query per extension
+- Preserved local validation of returned media extensions and MIME types
+- Added Alpha 3 analysis, merge, schema-migration, combined-media-index, and minimum-window timeout regression tests
+- Expanded the automated suite to 61 tests
+
 ## 2.0.0-alpha.2.7
 
 - Replaced independent per-worker HTTP 429 retries with one shared host-wide circuit breaker

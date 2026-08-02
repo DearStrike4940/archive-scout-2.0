@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-VERSION = "2.0.0-alpha.2.7"
-SCHEMA_VERSION = 3
+VERSION = "2.0.0-alpha.3"
+SCHEMA_VERSION = 4
 APP_NAME = "Archive Scout"
 CDX_URL = "https://web.archive.org/cdx/search/cdx"
 REPLAY_URL = "https://web.archive.org/web"
@@ -47,6 +47,9 @@ OPERATION_MODES = {
     "Index media URLs only": "media_index",
     "Download pending media": "media_download",
     "Retry only errored media": "media_retry",
+    "Run archive recovery and analysis": "analysis",
+    "Rebuild forum threads only": "forum_rebuild",
+    "Merge another Archive Scout project": "merge_project",
 }
 SCOPE_LABELS = {
     "All archived text pages (thorough)": "all_text",

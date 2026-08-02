@@ -1,8 +1,8 @@
 # Repository details
 
-Release: `2.0.0-alpha.2.5`
+Release: `2.0.0-alpha.3`
 
-Database schema: `3`
+Database schema: `4`
 
 Supported build targets:
 
@@ -20,12 +20,22 @@ ArchiveScout-macOS-Universal.zip
 
 Each package has a corresponding `.sha256` file.
 
-Alpha 2’s theme is **search, scoring, review, and media downloading**.
+Alpha 3's theme is **archive recovery and analysis**.
 
-Alpha 2.2 adds adaptive CDX window splitting for broad text and media index requests.
+Major subsystems added in Alpha 3:
+
+- forum canonicalization and thread reconstruction
+- built-in and custom identifier extraction
+- legacy embed/player recovery
+- controlled external-asset lookup
+- exact and near-duplicate clustering
+- source-to-mirror provenance
+- snapshot comparison and first-appearance research
+- project and shared-review merging
+- schema version 4 migration
+- noninterrupting transient CDX recovery down to one-second windows
+- combined direct-media extension indexing
 
 ## macOS bundle integrity
 
-The macOS build verifies `Contents/Resources/base_library.zip`, the executable, and every symbolic link before signing. It then packages the signed application with `ditto`, extracts the finished ZIP into a clean temporary directory, and verifies the extracted bundle and code signature again. The application also checks its frozen runtime before operations and network requests so a moved, deleted, replaced, or corrupted running app produces a direct installation error instead of a misleading CDX network failure.
-
-Alpha 2.5 replaces DMG creation with a symlink-preserving ZIP because repeated `hdiutil` disk-image creation failures on the hosted macOS runner occurred after the application itself had already built and verified successfully.
+The macOS build verifies `Contents/Resources/base_library.zip`, the executable, and every symbolic link before signing. It packages the signed application with `ditto`, extracts the completed ZIP into a clean temporary directory, and verifies the extracted bundle and code signature again.

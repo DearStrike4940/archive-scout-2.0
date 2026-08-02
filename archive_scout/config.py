@@ -80,6 +80,52 @@ class MediaConfig:
 
 
 @dataclass(slots=True)
+class AnalysisConfig:
+    forum_profile: str = "auto"
+    reconstruct_threads: bool = True
+    extract_legacy_embeds: bool = True
+    extractor_rules: list[str] = field(default_factory=list)
+    search_external_assets: bool = False
+    external_domains: list[str] = field(default_factory=list)
+    external_asset_limit: int = 5000
+    duplicate_threshold: float = 0.90
+    compare_snapshots: bool = True
+    build_provenance: bool = True
+    merge_source: str = ""
+
+    def normalized(self) -> "AnalysisConfig":
+        profile = self.forum_profile.strip().casefold() or "auto"
+        if profile not in {"auto", "generic", "vbulletin", "phpbb", "invision", "futaba", "2channel"}:
+            raise ValueError("unsupported forum profile")
+        domains = []
+        for value in self.external_domains:
+            value = value.strip().casefold()
+            if value.startswith("http://") or value.startswith("https://"):
+                from urllib.parse import urlsplit
+                value = urlsplit(value).hostname or ""
+            value = value.strip("./")
+            if value and value not in domains:
+                domains.append(value)
+        rules = [value.strip() for value in self.extractor_rules if value.strip()]
+        return AnalysisConfig(
+            forum_profile=profile,
+            reconstruct_threads=bool(self.reconstruct_threads),
+            extract_legacy_embeds=bool(self.extract_legacy_embeds),
+            extractor_rules=rules,
+            search_external_assets=bool(self.search_external_assets),
+            external_domains=domains,
+            external_asset_limit=min(100000, max(1, int(self.external_asset_limit))),
+            duplicate_threshold=min(1.0, max(0.5, float(self.duplicate_threshold))),
+            compare_snapshots=bool(self.compare_snapshots),
+            build_provenance=bool(self.build_provenance),
+            merge_source=str(self.merge_source).strip(),
+        )
+
+    def to_payload(self) -> dict:
+        return asdict(self.normalized())
+
+
+@dataclass(slots=True)
 class ProjectConfig:
     output_dir: Path
     targets: list[str]
@@ -114,6 +160,7 @@ class ProjectConfig:
     retry_capture_ids: list[int] = field(default_factory=list)
     retry_media_capture_ids: list[int] = field(default_factory=list)
     media: MediaConfig | dict = field(default_factory=MediaConfig)
+    analysis: AnalysisConfig | dict = field(default_factory=AnalysisConfig)
 
     def normalized_keyword_sets(self) -> list[KeywordSetConfig]:
         sets: list[KeywordSetConfig] = []
@@ -164,6 +211,8 @@ class ProjectConfig:
         extra_params = [f"{key}={value}" for key, value in parse_cdx_parameter_lines(self.cdx_extra_params)]
         media = self.media if isinstance(self.media, MediaConfig) else MediaConfig(**self.media)
         media = media.normalized()
+        analysis = self.analysis if isinstance(self.analysis, AnalysisConfig) else AnalysisConfig(**self.analysis)
+        analysis = analysis.normalized()
         return ProjectConfig(
             output_dir=output_dir,
             targets=targets,
@@ -198,6 +247,7 @@ class ProjectConfig:
             retry_capture_ids=sorted({int(value) for value in self.retry_capture_ids if int(value) > 0}),
             retry_media_capture_ids=sorted({int(value) for value in self.retry_media_capture_ids if int(value) > 0}),
             media=media,
+            analysis=analysis,
         )
 
     @property
@@ -210,6 +260,7 @@ class ProjectConfig:
         payload["output_dir"] = str(config.output_dir)
         payload["keyword_sets"] = [item.to_payload() for item in config.normalized_keyword_sets()]
         payload["media"] = config.media.to_payload() if isinstance(config.media, MediaConfig) else dict(config.media)
+        payload["analysis"] = config.analysis.to_payload() if isinstance(config.analysis, AnalysisConfig) else dict(config.analysis)
         payload["version"] = VERSION
         return payload
 
@@ -225,6 +276,7 @@ def load_project_config(path: Path) -> ProjectConfig:
     payload = json.loads(path.read_text(encoding="utf-8"))
     keyword_sets = list(payload.get("keyword_sets") or [])
     media_payload = payload.get("media") or {}
+    analysis_payload = payload.get("analysis") or {}
     return ProjectConfig(
         output_dir=Path(payload.get("output_dir") or path.parent),
         targets=list(payload.get("targets") or []),
@@ -270,5 +322,18 @@ def load_project_config(path: Path) -> ProjectConfig:
             snapshot_strategy=str(media_payload.get("snapshot_strategy", "earliest")),
             max_file_mb=float(media_payload.get("max_file_mb", 500.0)),
             preserve_paths=bool(media_payload.get("preserve_paths", True)),
+        ),
+        analysis=AnalysisConfig(
+            forum_profile=str(analysis_payload.get("forum_profile", "auto")),
+            reconstruct_threads=bool(analysis_payload.get("reconstruct_threads", True)),
+            extract_legacy_embeds=bool(analysis_payload.get("extract_legacy_embeds", True)),
+            extractor_rules=list(analysis_payload.get("extractor_rules") or []),
+            search_external_assets=bool(analysis_payload.get("search_external_assets", False)),
+            external_domains=list(analysis_payload.get("external_domains") or []),
+            external_asset_limit=int(analysis_payload.get("external_asset_limit", 5000)),
+            duplicate_threshold=float(analysis_payload.get("duplicate_threshold", 0.90)),
+            compare_snapshots=bool(analysis_payload.get("compare_snapshots", True)),
+            build_provenance=bool(analysis_payload.get("build_provenance", True)),
+            merge_source=str(analysis_payload.get("merge_source", "")),
         ),
     ).normalized()

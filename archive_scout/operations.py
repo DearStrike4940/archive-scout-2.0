@@ -7,6 +7,7 @@ from typing import Callable
 
 from .cdx.client import RateLimitDeferred
 from .cdx.indexer import index_archive
+from .analysis.workflow import run_analysis
 from .config import KeywordSetConfig, ProjectConfig, save_project_config
 from .database.connection import open_database
 from .database.repositories import finish_scan_run, get_or_create_keyword_set, latest_scan_run, start_scan_run
@@ -17,6 +18,7 @@ from .media.downloader import download_media, retry_media_errors
 from .media.indexer import index_media
 from .media.reports import generate_media_reports
 from .projects.integrity import check_project_integrity
+from .projects.merge import merge_projects
 from .reports.text import generate_reports
 from .scanning.jobs import ScanJob
 from .scanning.rescanner import rescan_keyword_sets
@@ -24,6 +26,7 @@ from .scanning.rescanner import rescan_keyword_sets
 SUPPORTED_MODES = {
     "all", "index", "download", "resume", "rescan", "retry_errors", "report", "integrity",
     "media_all", "media_index", "media_download", "media_retry",
+    "analysis", "forum_rebuild", "merge_project",
 }
 
 
@@ -105,6 +108,18 @@ def run_project(
             path = check_project_integrity(config.output_dir, database, callback)
             emit(callback, ProgressEvent("integrity", f"Integrity report written to {path}"))
             return {"integrity": path}
+        if mode == "analysis":
+            return run_analysis(config, database, stop_event, callback, forum_only=False)
+        if mode == "forum_rebuild":
+            return run_analysis(config, database, stop_event, callback, forum_only=True)
+        if mode == "merge_project":
+            source = Path(config.analysis.normalized().merge_source).expanduser()
+            if not str(source).strip() or not source.exists():
+                raise ValueError("choose an existing Archive Scout project folder to merge")
+            summary = merge_projects(config.output_dir, source, database, stop_event, callback)
+            merge_report = config.output_dir / "reports" / "merge_summary.txt"
+            merge_report.write_text("Archive Scout project merge\n\n" + "\n".join(f"{key}: {value}" for key, value in summary.items()) + "\n", encoding="utf-8")
+            return {"merge_summary": merge_report}
         if mode == "index":
             index_archive(config, database, stop_event, callback)
             return {"project": config.output_dir / "project.json"}

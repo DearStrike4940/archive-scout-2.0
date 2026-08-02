@@ -93,7 +93,7 @@ class IndexRecoveryTests(unittest.TestCase):
                     index_archive(config, database, threading.Event())
             state = database.execute("SELECT complete,resume_key FROM index_state").fetchone()
             self.assertEqual(state["complete"], 0)
-            self.assertIn('"version":2', state["resume_key"])
+            self.assertIn('"version":3', state["resume_key"])
             with patch("archive_scout.cdx.client.HttpClient.get_json", return_value=[]) as mocked:
                 index_archive(config, database, threading.Event())
             self.assertEqual(mocked.call_count, 5)
@@ -102,7 +102,7 @@ class IndexRecoveryTests(unittest.TestCase):
             self.assertIsNone(state["resume_key"])
             database.close()
 
-    def test_rate_limit_deferral_saves_index_state_without_error_row(self):
+    def test_rate_limit_deferral_is_retried_without_ending_the_run(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             config = ProjectConfig(
@@ -116,14 +116,13 @@ class IndexRecoveryTests(unittest.TestCase):
             database = open_database(root)
             with patch(
                 "archive_scout.cdx.client.HttpClient.get_json",
-                side_effect=RateLimitDeferred("server busy", waited=60),
-            ):
-                with self.assertRaises(RateLimitDeferred):
-                    index_archive(config, database, threading.Event())
+                side_effect=[RateLimitDeferred("server busy", waited=60), []],
+            ), patch("archive_scout.cdx.indexer.transient_backoff", return_value=0):
+                index_archive(config, database, threading.Event())
             state = database.execute("SELECT complete,resume_key FROM index_state").fetchone()
-            self.assertEqual(state["complete"], 0)
-            self.assertIsNotNone(state["resume_key"])
-            self.assertEqual(database.execute("SELECT COUNT(*) FROM errors").fetchone()[0], 0)
+            self.assertEqual(state["complete"], 1)
+            self.assertIsNone(state["resume_key"])
+            self.assertEqual(database.execute("SELECT COUNT(*) FROM errors WHERE resolved=0").fetchone()[0], 0)
             database.close()
 
     def test_failed_index_does_not_create_empty_scan_runs(self):

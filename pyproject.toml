@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archive-scout"
-version = "2.0.0a2.post7"
-description = "A cross-platform desktop research tool for indexing, downloading, rescanning, and reviewing public Wayback Machine captures"
+version = "2.0.0a3"
+description = "A cross-platform desktop research tool for indexing, downloading, reconstructing, and analyzing public Wayback Machine captures"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
