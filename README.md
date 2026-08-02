@@ -29,7 +29,10 @@ Alpha 2 keeps every Alpha 1 feature and adds a full search-and-review workspace.
 - Instant offline SQLite full-text search within the selected scan
 - Scan history, report regeneration, deletion, renaming, and two-scan comparison
 - Error viewer with selected text-page and media retries
-- Fixed, user-controlled worker count and request delays for predictable network behavior
+- Fixed, user-controlled worker count and request delays with coordinated HTTP 429 recovery
+- Shared Wayback backpressure that pauses every worker together, obeys `Retry-After`, and resumes automatically
+- Keep-alive HTTP connection pooling and bounded in-flight queues
+- Fast literal-keyword prefiltering for large exact-keyword sets
 - Adaptive CDX date splitting when broad monthly requests time out
 - Direct image and video indexing and downloading
 - Image/video discovery from links inside saved pages
@@ -170,6 +173,25 @@ media/
 
 Media reports include indexed URLs, successful downloads, Wayback URLs, errors, and summary counts.
 
+## Network behavior and HTTP 429 recovery
+
+Archive Scout keeps the configured worker count and request delays fixed. It does not silently reduce workers or permanently increase delays. When Wayback explicitly returns HTTP 429, the request pool closes one shared circuit and every worker pauses. `Retry-After` is honored when present; otherwise, bounded server backoff is used.
+
+After the pause, exactly one recovery request is allowed through. The full queue reopens only after that probe receives a non-rate-limited response, preventing every worker from hitting Wayback at once. The default wait budget is `0`, meaning Archive Scout keeps the queue safely paused until Wayback recovers or the user presses Stop. A nonzero budget can still be used to save and defer a run automatically. Server-level pauses do not consume a capture's normal download-attempt allowance.
+
+New-project defaults are intentionally balanced:
+
+```text
+Download workers: 4
+CDX delay: 1.0 seconds
+Download delay: 0.5 seconds
+429 base pause: 30 seconds
+429 maximum pause: 300 seconds
+429 wait budget: 0 minutes (keep waiting)
+```
+
+See [docs/NETWORK_PERFORMANCE.md](docs/NETWORK_PERFORMANCE.md) for tuning guidance.
+
 ## Project layout
 
 ```text
@@ -251,9 +273,9 @@ A successful run creates Windows, Linux, and universal macOS artifacts. Pushing 
 
 ## Current status
 
-`2.0.0-alpha.2.6` is an alpha release. Keep backups of important projects and verify large media jobs with a narrow date range first.
+`2.0.0-alpha.2.7` is an alpha release. Keep backups of important projects and verify large media jobs with a narrow date range first.
 
-See [ROADMAP.md](ROADMAP.md), [docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/INDEXING_RECOVERY.md](docs/INDEXING_RECOVERY.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+See [ROADMAP.md](ROADMAP.md), [docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/INDEXING_RECOVERY.md](docs/INDEXING_RECOVERY.md), [docs/NETWORK_PERFORMANCE.md](docs/NETWORK_PERFORMANCE.md), [docs/DOWNLOADER_COMPARISON.md](docs/DOWNLOADER_COMPARISON.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Responsible use
 

@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 Remove-Item build,dist,release -Recurse -Force -ErrorAction SilentlyContinue
-python -m PyInstaller --noconfirm --clean --windowed --onedir --name ArchiveScout --collect-all truststore run_app.py
+python -m PyInstaller --noconfirm --clean --windowed --onedir --name ArchiveScout --collect-all truststore --collect-all urllib3 run_app.py
 New-Item -ItemType Directory -Path release | Out-Null
 $Package = Join-Path $PWD "release\ArchiveScout-Windows-x64"
 New-Item -ItemType Directory -Path $Package | Out-Null

@@ -12,6 +12,7 @@ python -m PyInstaller \
   --name "Archive Scout" \
   --target-arch universal2 \
   --collect-all truststore \
+  --collect-all urllib3 \
   run_app.py
 
 APP="dist/Archive Scout.app"

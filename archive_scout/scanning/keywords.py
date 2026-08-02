@@ -164,3 +164,42 @@ def compile_keywords(keywords: Iterable[str | dict | KeywordRule]) -> list[Compi
 def keyword_url_match(url: str, patterns: list[CompiledRule]) -> bool:
     normalized = normalize_search(url)
     return any(item.pattern.search(url if item.rule.case_sensitive else normalized) for item in patterns if item.rule.kind != "excluded")
+
+
+@dataclass(slots=True)
+class KeywordPrefilter:
+    literal_pattern: re.Pattern[str] | None
+    slow_patterns: list[CompiledRule]
+    has_positive_rules: bool
+
+    def matches(self, fields: dict[str, str], normalized_fields: dict[str, str]) -> bool:
+        if not self.has_positive_rules:
+            return True
+        if self.literal_pattern is not None:
+            for value in normalized_fields.values():
+                if self.literal_pattern.search(value):
+                    return True
+        for item in self.slow_patterns:
+            for field_name, value in fields.items():
+                haystack = value if item.rule.case_sensitive else normalized_fields[field_name]
+                if item.pattern.search(haystack):
+                    return True
+        return False
+
+
+def compile_prefilter(patterns: list[CompiledRule]) -> KeywordPrefilter:
+    positive = [item for item in patterns if item.rule.kind != "excluded"]
+    literals: list[str] = []
+    slow: list[CompiledRule] = []
+    for item in positive:
+        if item.rule.kind != "regex" and not item.rule.case_sensitive and not item.rule.whole_word:
+            normalized = normalize_search(item.rule.expression)
+            if normalized:
+                literals.append(re.escape(normalized).replace(r"\ ", r"\s+"))
+        else:
+            slow.append(item)
+    literal_pattern = None
+    if literals:
+        unique = sorted(set(literals), key=lambda value: (-len(value), value))
+        literal_pattern = re.compile("(?:" + "|".join(unique) + ")")
+    return KeywordPrefilter(literal_pattern, slow, bool(positive))

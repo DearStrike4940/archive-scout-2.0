@@ -8,13 +8,13 @@ from collections import defaultdict
 from typing import Callable
 from urllib.parse import urlsplit
 
-from ..cdx.client import HttpClient, TransientRequestError
+from ..cdx.client import HttpClient, RateLimitDeferred, TransientRequestError
 from ..cdx.indexer import decode_plan, encode_plan, month_windows, split_window, window_label
 from ..cdx.parameters import parse_cdx
 from ..config import ProjectConfig
 from ..constants import CDX_URL
 from ..database.repositories import get_or_create_media_target, record_error, upsert_media_capture, upsert_media_captures
-from ..downloads.rate_limit import FixedRateLimiter
+from ..downloads.rate_limit import FixedRateLimiter, SharedHostGate
 from ..events import ProgressEvent, Stopped
 from ..utils import json_value, parse_cdx_parameter_lines, utc_now
 from .extensions import allowed_media_url, media_kind, selected_extensions
@@ -255,6 +255,27 @@ def index_direct_media(
                         error_id,
                     )
                 raise
+            except RateLimitDeferred:
+                with database:
+                    save_media_state(
+                        target_id,
+                        extension,
+                        year,
+                        encode_plan(plan),
+                        False,
+                        seen,
+                        error_id,
+                    )
+                if callback:
+                    callback(
+                        ProgressEvent(
+                            "rate_limit",
+                            "Wayback remained rate limited beyond the configured wait budget. Media index progress was saved for Resume.",
+                            completed,
+                            total,
+                        )
+                    )
+                raise
             except TransientRequestError as exc:
                 parts = split_window(current) if exc.splittable else []
                 if parts:
@@ -394,22 +415,32 @@ def index_media(
         raise ValueError("no image or video extensions remain after include/exclude filtering")
     signature = media_query_signature(config)
     limiter = FixedRateLimiter(config.cdx_delay)
+    host_gate = SharedHostGate(config.rate_limit_base_pause, config.rate_limit_max_pause)
+
     def on_retry(attempt: int, total: int, reason: str, wait_seconds: float) -> None:
         if callback:
-            callback(
-                ProgressEvent(
-                    "media_index",
-                    f"CDX media request failed ({reason}). Retrying attempt {attempt}/{total} in {wait_seconds:.1f}s…",
-                )
-            )
+            if "all Wayback requests paused" in reason:
+                limit = f"/{total}" if total else ""
+                message = f"{reason}. Shared pause {attempt}{limit} for {wait_seconds:.1f}s; one recovery probe will run next…"
+                stage = "rate_limit"
+            else:
+                message = f"CDX media request failed ({reason}). Retrying attempt {attempt}/{total} in {wait_seconds:.1f}s…"
+                stage = "media_index"
+            callback(ProgressEvent(stage, message))
 
     client = HttpClient(
         limiter,
-        min(config.retries, 2),
-        min(max(config.connect_timeout, 15.0), 45.0),
+        min(config.retries, 3),
+        min(max(config.read_timeout, 15.0), 45.0),
         config.user_agent,
         stop_event,
         retry_callback=on_retry,
+        connect_timeout=min(max(config.connect_timeout, 5.0), 30.0),
+        read_timeout=min(max(config.read_timeout, 15.0), 45.0),
+        pool_size=1,
+        host_gate=host_gate,
+        rate_limit_attempts=config.rate_limit_attempts,
+        rate_limit_max_wait=config.rate_limit_max_wait,
     )
     index_direct_media(config, database, client, stop_event, callback, signature)
     index_embedded_media(config, database, client, stop_event, callback, signature)

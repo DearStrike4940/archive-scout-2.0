@@ -12,10 +12,10 @@ from typing import Callable
 from ..config import ProjectConfig
 from ..constants import CDX_URL
 from ..database.repositories import get_or_create_target, record_error, upsert_captures
-from ..downloads.rate_limit import FixedRateLimiter
+from ..downloads.rate_limit import FixedRateLimiter, SharedHostGate
 from ..events import ProgressEvent, Stopped
 from ..utils import utc_now
-from .client import HttpClient, TransientRequestError
+from .client import HttpClient, RateLimitDeferred, TransientRequestError
 from .parameters import build_cdx_params, cdx_query_signature, parse_cdx
 
 
@@ -200,23 +200,29 @@ def index_archive(
     callback: Callable[[ProgressEvent], None] | None = None,
 ) -> None:
     limiter = FixedRateLimiter(config.cdx_delay)
+    host_gate = SharedHostGate(config.rate_limit_base_pause, config.rate_limit_max_pause)
 
     def on_retry(attempt: int, total: int, reason: str, wait_seconds: float) -> None:
-        emit(
-            callback,
-            ProgressEvent(
-                "index",
-                f"CDX request failed ({reason}). Retrying attempt {attempt}/{total} in {wait_seconds:.1f}s…",
-            ),
-        )
+        if "all Wayback requests paused" in reason:
+            limit = f"/{total}" if total else ""
+            message = f"{reason}. Shared pause {attempt}{limit} for {wait_seconds:.1f}s; one recovery probe will run next…"
+        else:
+            message = f"CDX request failed ({reason}). Retrying attempt {attempt}/{total} in {wait_seconds:.1f}s…"
+        emit(callback, ProgressEvent("rate_limit" if "all Wayback requests paused" in reason else "index", message))
 
     client = HttpClient(
         limiter,
-        min(config.retries, 2),
-        min(max(config.connect_timeout, 15.0), 45.0),
+        min(config.retries, 3),
+        min(max(config.read_timeout, 15.0), 45.0),
         config.user_agent,
         stop_event,
         retry_callback=on_retry,
+        connect_timeout=min(max(config.connect_timeout, 5.0), 30.0),
+        read_timeout=min(max(config.read_timeout, 15.0), 45.0),
+        pool_size=1,
+        host_gate=host_gate,
+        rate_limit_attempts=config.rate_limit_attempts,
+        rate_limit_max_wait=config.rate_limit_max_wait,
     )
     signature = cdx_query_signature(config)
     if not config.cdx_collapses:
@@ -363,6 +369,28 @@ def index_archive(
                         seen,
                         error_id,
                     )
+                raise
+            except RateLimitDeferred:
+                with database:
+                    save_state(
+                        database,
+                        target_id,
+                        year,
+                        signature,
+                        encode_plan(plan),
+                        False,
+                        seen,
+                        error_id,
+                    )
+                emit(
+                    callback,
+                    ProgressEvent(
+                        "rate_limit",
+                        "Wayback remained rate limited beyond the configured wait budget. Index progress was saved for Resume.",
+                        completed_windows,
+                        total_windows,
+                    ),
+                )
                 raise
             except TransientRequestError as exc:
                 parts = split_window(current) if exc.splittable else []

@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.0.0-alpha.2.7
+
+- Replaced independent per-worker HTTP 429 retries with one shared host-wide circuit breaker
+- Obeyed Wayback `Retry-After` responses and coalesced simultaneous 429 responses into one incident
+- Added half-open recovery: after a pause, one probe request tests Wayback before the full queue reopens
+- Invalidated stale worker permits so requests already waiting when a 429 arrives cannot leak through after the circuit closes
+- Added bounded exponential server backoff when `Retry-After` is absent
+- Kept worker count and user-selected request delays fixed; server pauses do not rewrite project settings
+- Prevented persistent rate limiting from turning thousands of queued captures into individual errors
+- Made the 429 wait budget optional; the default of zero keeps the run paused until Wayback recovers or the user presses Stop
+- Saved the pending queue and marked the run interrupted only when a nonzero 429 wait budget is exhausted
+- Prevented server-level deferrals from consuming a capture's per-item download-attempt allowance
+- Replaced `urllib` connection-per-request behavior with a shared `urllib3` keep-alive connection pool
+- Added separate connect and read timeouts to pooled requests
+- Bounded text and media in-flight queues to twice the worker count instead of submitting every media item at once
+- Added visible 429 pause, retry, and graceful-deferral messages to the Activity tab
+- Added 429 base pause, maximum pause, and wait-budget controls
+- Changed new-project defaults to 4 workers, 1.0-second CDX spacing, and 0.5-second replay spacing
+- Precomputed normalized page fields once per scan instead of once per keyword and field
+- Added a compiled literal-keyword prefilter that skips full scoring on clearly nonmatching pages
+- Drained redirect and error responses before connection reuse to prevent poisoned keep-alive sockets
+- Added pooled-HTTP, redirect-reuse, shared-backpressure, half-open-probe, deferral, and large-keyword-set regression tests
+- Expanded the automated suite to 49 tests
+
 ## 2.0.0-alpha.2.6
 
 - Removed adaptive rate limiting, dynamic worker reduction, automatic cooldowns, penalty multipliers, and gradual worker recovery

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from archive_scout.cdx.client import TransientRequestError
+from archive_scout.cdx.client import RateLimitDeferred, TransientRequestError
 from archive_scout.cdx.indexer import index_archive
 from archive_scout.config import KeywordSetConfig, ProjectConfig
 from archive_scout.database.connection import open_database
@@ -100,6 +100,30 @@ class IndexRecoveryTests(unittest.TestCase):
             state = database.execute("SELECT complete,resume_key FROM index_state").fetchone()
             self.assertEqual(state["complete"], 1)
             self.assertIsNone(state["resume_key"])
+            database.close()
+
+    def test_rate_limit_deferral_saves_index_state_without_error_row(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = ProjectConfig(
+                output_dir=root,
+                targets=["example.com/*"],
+                keywords=["example"],
+                from_date="200301",
+                to_date="200301",
+                cdx_delay=0,
+            ).normalized()
+            database = open_database(root)
+            with patch(
+                "archive_scout.cdx.client.HttpClient.get_json",
+                side_effect=RateLimitDeferred("server busy", waited=60),
+            ):
+                with self.assertRaises(RateLimitDeferred):
+                    index_archive(config, database, threading.Event())
+            state = database.execute("SELECT complete,resume_key FROM index_state").fetchone()
+            self.assertEqual(state["complete"], 0)
+            self.assertIsNotNone(state["resume_key"])
+            self.assertEqual(database.execute("SELECT COUNT(*) FROM errors").fetchone()[0], 0)
             database.close()
 
     def test_failed_index_does_not_create_empty_scan_runs(self):

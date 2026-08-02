@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
+from archive_scout.scanning.jobs import ScanJob
 from archive_scout.scanning.keywords import compile_keywords, parse_keyword_rules
 from archive_scout.scanning.scoring import analyze_content
 
@@ -38,6 +40,21 @@ class Alpha2KeywordTests(unittest.TestCase):
         close = analyze_content("http://example.com", "", "WTC jumper impact footage", "WTC jumper impact footage", [], patterns)
         far = analyze_content("http://example.com", "", "WTC " + "word " * 100 + "jumper", "WTC " + "word " * 100 + "jumper", [], patterns)
         self.assertGreater(close["score"], far["score"])
+
+    def test_literal_prefilter_skips_full_scoring_for_nonmatching_page(self):
+        job = ScanJob.create(1, "large", [f"exact: phrase-{index}" for index in range(342)])
+        with patch("archive_scout.scanning.scoring._matches", side_effect=AssertionError("full scan should be skipped")):
+            result = analyze_content(
+                "http://example.com/ordinary",
+                "Ordinary page",
+                "This page contains no configured phrase.",
+                "<html><body>This page contains no configured phrase.</body></html>",
+                [],
+                job.patterns,
+                job.prefilter,
+            )
+        self.assertEqual(result["score"], 0)
+        self.assertEqual(result["hits"], {})
 
 
 if __name__ == "__main__":

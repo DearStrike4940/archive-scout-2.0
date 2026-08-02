@@ -10,7 +10,7 @@ from ..database.repositories import record_error, resolve_errors, save_match, up
 from ..events import ProgressEvent, Stopped
 from ..utils import hash_text, normalize_search
 from .jobs import ScanJob
-from .scoring import analyze_content
+from .scoring import analyze_content, prepare_analysis_fields
 
 
 def rescan_keyword_sets(
@@ -62,8 +62,17 @@ def rescan_keyword_sets(
         try:
             raw = path.read_text(encoding="utf-8", errors="replace")
             title, visible, links = parse_page(raw, row["original_url"])
+            prepared_fields, prepared_normalized_fields = prepare_analysis_fields(
+                row["original_url"], title, visible, raw, links
+            )
             analyses = [
-                (job.scan_run_id, analyze_content(row["original_url"], title, visible, raw, links, job.patterns))
+                (
+                    job.scan_run_id,
+                    analyze_content(
+                        row["original_url"], title, visible, raw, links, job.patterns, job.prefilter,
+                        prepared_fields, prepared_normalized_fields,
+                    ),
+                )
                 for job in jobs
             ]
             with database:

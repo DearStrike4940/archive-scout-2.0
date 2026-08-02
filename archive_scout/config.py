@@ -94,14 +94,18 @@ class ProjectConfig:
     cdx_collapses: list[str] = field(default_factory=lambda: ["urlkey"])
     cdx_match_type: str = ""
     cdx_extra_params: list[str] = field(default_factory=list)
-    workers: int = 6
+    workers: int = 4
     download_scope: str = "all_text"
     minimum_score: int = 1
     max_file_mb: float = 25.0
     page_size: int = 5000
-    cdx_delay: float = 0.8
-    download_delay: float = 0.25
-    retries: int = 6
+    cdx_delay: float = 1.0
+    download_delay: float = 0.5
+    retries: int = 4
+    rate_limit_base_pause: float = 30.0
+    rate_limit_max_pause: float = 300.0
+    rate_limit_max_wait: float = 0.0
+    rate_limit_attempts: int = 0
     connect_timeout: float = 30.0
     read_timeout: float = 180.0
     max_attempts: int = 4
@@ -182,6 +186,10 @@ class ProjectConfig:
             cdx_delay=max(0.0, float(self.cdx_delay)),
             download_delay=max(0.0, float(self.download_delay)),
             retries=min(12, max(1, int(self.retries))),
+            rate_limit_base_pause=max(1.0, float(self.rate_limit_base_pause)),
+            rate_limit_max_pause=max(float(self.rate_limit_base_pause), float(self.rate_limit_max_pause)),
+            rate_limit_max_wait=max(0.0, float(self.rate_limit_max_wait)),
+            rate_limit_attempts=min(1000, max(0, int(self.rate_limit_attempts))),
             connect_timeout=max(1.0, float(self.connect_timeout)),
             read_timeout=max(1.0, float(self.read_timeout)),
             max_attempts=min(20, max(1, int(self.max_attempts))),
@@ -231,14 +239,18 @@ def load_project_config(path: Path) -> ProjectConfig:
         cdx_collapses=list(payload["cdx_collapses"]) if "cdx_collapses" in payload else ["urlkey"],
         cdx_match_type=str(payload.get("cdx_match_type", "")),
         cdx_extra_params=list(payload.get("cdx_extra_params") or []),
-        workers=int(payload.get("workers", 6)),
+        workers=int(payload.get("workers", 4)),
         download_scope=str(payload.get("download_scope", "all_text")),
         minimum_score=int(payload.get("minimum_score", 1)),
         max_file_mb=float(payload.get("max_file_mb", 25.0)),
         page_size=int(payload.get("page_size", 5000)),
-        cdx_delay=float(payload.get("cdx_delay", 0.8)),
-        download_delay=float(payload.get("download_delay", 0.25)),
-        retries=int(payload.get("retries", 6)),
+        cdx_delay=float(payload.get("cdx_delay", 1.0)),
+        download_delay=float(payload.get("download_delay", 0.5)),
+        retries=int(payload.get("retries", 4)),
+        rate_limit_base_pause=float(payload.get("rate_limit_base_pause", 30.0)),
+        rate_limit_max_pause=float(payload.get("rate_limit_max_pause", 300.0)),
+        rate_limit_max_wait=float(payload.get("rate_limit_max_wait", 0.0)),
+        rate_limit_attempts=int(payload.get("rate_limit_attempts", 0)),
         connect_timeout=float(payload.get("connect_timeout", 30.0)),
         read_timeout=float(payload.get("read_timeout", 180.0)),
         max_attempts=int(payload.get("max_attempts", 4)),

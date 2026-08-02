@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from .cdx.client import RateLimitDeferred
 from .cdx.indexer import index_archive
 from .config import KeywordSetConfig, ProjectConfig, save_project_config
 from .database.connection import open_database
@@ -163,6 +164,19 @@ def run_project(
             paths.update(generate_media_reports(config, database))
         emit(callback, ProgressEvent("report", f"Reports written to {config.output_dir / 'reports'}"))
         return paths
+    except RateLimitDeferred as exc:
+        with database:
+            database.execute("UPDATE captures SET state='pending' WHERE state='downloading'")
+            database.execute("UPDATE media_captures SET state='pending' WHERE state='downloading'")
+            finish_jobs(database, jobs, "interrupted")
+        emit(
+            callback,
+            ProgressEvent(
+                "rate_limit",
+                f"Wayback stayed rate limited beyond the wait budget. Progress was saved; use Resume later. {exc}",
+            ),
+        )
+        raise
     except Stopped:
         with database:
             database.execute("UPDATE captures SET state='pending' WHERE state='downloading'")

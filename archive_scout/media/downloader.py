@@ -11,11 +11,11 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import unquote, urlsplit
 
-from ..cdx.client import HttpClient
+from ..cdx.client import HttpClient, RateLimitDeferred
 from ..config import ProjectConfig
 from ..database.repositories import record_error, save_media_success
 from ..downloads.downloader import replay_url
-from ..downloads.rate_limit import FixedRateLimiter
+from ..downloads.rate_limit import FixedRateLimiter, SharedHostGate
 from ..downloads.validation import classify_exception
 from ..events import ProgressEvent, Stopped
 from ..utils import utc_now
@@ -93,12 +93,46 @@ def download_media(
             callback(ProgressEvent("media_download", "No media captures to download.", 0, 0))
         return
     limiter = FixedRateLimiter(config.download_delay)
-    client = HttpClient(limiter, config.retries, max(config.connect_timeout, config.read_timeout), config.user_agent, stop_event)
+    host_gate = SharedHostGate(config.rate_limit_base_pause, config.rate_limit_max_pause)
+
+    def on_retry(attempt: int, total_attempts: int, reason: str, wait_seconds: float) -> None:
+        if callback:
+            rate_limited = "all Wayback requests paused" in reason
+            stage = "rate_limit" if rate_limited else "media_retry"
+            if rate_limited:
+                limit = f"/{total_attempts}" if total_attempts else ""
+                message = f"{reason}. Shared pause {attempt}{limit} for {wait_seconds:.1f}s; one recovery probe will run next…"
+            else:
+                message = f"{reason}. Retry {attempt}/{total_attempts} in {wait_seconds:.1f}s…"
+            callback(ProgressEvent(stage, message))
+
+    client = HttpClient(
+        limiter,
+        config.retries,
+        max(config.connect_timeout, config.read_timeout),
+        config.user_agent,
+        stop_event,
+        retry_callback=on_retry,
+        connect_timeout=config.connect_timeout,
+        read_timeout=config.read_timeout,
+        pool_size=config.workers,
+        host_gate=host_gate,
+        rate_limit_attempts=config.rate_limit_attempts,
+        rate_limit_max_wait=config.rate_limit_max_wait,
+    )
     complete = errors = 0
     started = time.monotonic()
+    max_inflight = max(config.workers, config.workers * 2)
+    row_iter = iter(rows)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=config.workers, thread_name_prefix="archive-media") as pool:
         futures: dict[concurrent.futures.Future, sqlite3.Row] = {}
-        for row in rows:
+
+        def submit_next() -> bool:
+            try:
+                row = next(row_iter)
+            except StopIteration:
+                return False
             if stop_event.is_set():
                 raise Stopped
             with database:
@@ -107,39 +141,66 @@ def download_media(
                     (utc_now(), row["id"]),
                 )
             futures[pool.submit(fetch_media, row, config, client)] = row
-        for future in concurrent.futures.as_completed(futures):
-            row = futures[future]
+            return True
+
+        while len(futures) < max_inflight and submit_next():
+            pass
+
+        while futures:
             if stop_event.is_set():
+                for pending in futures:
+                    pending.cancel()
                 raise Stopped
-            try:
-                result = future.result()
-                with database:
-                    save_media_success(
-                        database, result["id"], result["path"], result["bytes"], result["hash"], result["status"], result["final_url"]
-                    )
-            except Exception as exc:
-                errors += 1
-                category, status, retryable = classify_exception(exc)
-                if str(exc) == "invalid_wayback_replay":
-                    category, retryable = "invalid_wayback_replay", False
-                with database:
-                    database.execute(
-                        "UPDATE media_captures SET state='error',http_status=?,updated_at=? WHERE id=?",
-                        (status, utc_now(), row["id"]),
-                    )
-                    record_error(
-                        database, "media_download", category, repr(exc), media_capture_id=int(row["id"]),
-                        http_status=status, retryable=retryable
-                    )
-            complete += 1
-            elapsed = max(0.001, time.monotonic() - started)
-            if callback:
-                callback(ProgressEvent(
-                    "media_download",
-                    f"Media {complete:,}/{total:,}; errors {errors:,}; {complete/elapsed:.1f}/s",
-                    complete, total,
-                    {"errors": errors},
-                ))
+            done, _ = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
+            for future in done:
+                row = futures.pop(future)
+                try:
+                    result = future.result()
+                    with database:
+                        save_media_success(
+                            database, result["id"], result["path"], result["bytes"], result["hash"], result["status"], result["final_url"]
+                        )
+                except RateLimitDeferred:
+                    stop_event.set()
+                    with database:
+                        database.execute(
+                            """UPDATE media_captures SET state='pending',
+                               download_attempts=CASE WHEN download_attempts>0 THEN download_attempts-1 ELSE 0 END,
+                               updated_at=? WHERE state='downloading' OR id=?""",
+                            (utc_now(), row["id"]),
+                        )
+                    for pending in futures:
+                        pending.cancel()
+                    raise
+                except Stopped:
+                    with database:
+                        database.execute("UPDATE media_captures SET state='pending',updated_at=? WHERE id=?", (utc_now(), row["id"]))
+                    raise
+                except Exception as exc:
+                    errors += 1
+                    category, status, retryable = classify_exception(exc)
+                    if str(exc) == "invalid_wayback_replay":
+                        category, retryable = "invalid_wayback_replay", False
+                    with database:
+                        database.execute(
+                            "UPDATE media_captures SET state='error',http_status=?,updated_at=? WHERE id=?",
+                            (status, utc_now(), row["id"]),
+                        )
+                        record_error(
+                            database, "media_download", category, repr(exc), media_capture_id=int(row["id"]),
+                            http_status=status, retryable=retryable
+                        )
+                complete += 1
+                elapsed = max(0.001, time.monotonic() - started)
+                if callback:
+                    callback(ProgressEvent(
+                        "media_download",
+                        f"Media {complete:,}/{total:,}; errors {errors:,}; {complete/elapsed:.1f}/s",
+                        complete, total,
+                        {"errors": errors},
+                    ))
+                while len(futures) < max_inflight and submit_next():
+                    pass
 
 
 def retry_media_errors(

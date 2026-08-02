@@ -8,7 +8,7 @@ from pathlib import Path
 from ..constants import ARCHIVE_EXTENSIONS, MEDIA_EXTENSIONS
 from ..content import safe_urlsplit
 from ..utils import normalize_search
-from .keywords import CompiledRule, keyword_url_match
+from .keywords import CompiledRule, KeywordPrefilter, keyword_url_match
 from .snippets import make_snippets
 
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|[\r\n]+")
@@ -24,8 +24,8 @@ def link_is_interesting(link: str, patterns: list[CompiledRule]) -> bool:
     return keyword_url_match(link, patterns)
 
 
-def _matches(item: CompiledRule, value: str) -> list[re.Match[str]]:
-    haystack = value if item.rule.case_sensitive else normalize_search(value)
+def _matches(item: CompiledRule, value: str, normalized_value: str) -> list[re.Match[str]]:
+    haystack = value if item.rule.case_sensitive else normalized_value
     return list(item.pattern.finditer(haystack))
 
 
@@ -34,10 +34,11 @@ def _matched_labels_in_segments(text: str, patterns: list[CompiledRule], splitte
     for segment in splitter.split(text):
         if not segment.strip():
             continue
+        normalized_segment = normalize_search(segment)
         labels = {
             item.rule.label
             for item in patterns
-            if item.rule.kind != "excluded" and item.pattern.search(segment if item.rule.case_sensitive else normalize_search(segment))
+            if item.rule.kind != "excluded" and item.pattern.search(segment if item.rule.case_sensitive else normalized_segment)
         }
         if len(labels) >= 2:
             bonus += len(labels) * (len(labels) - 1)
@@ -78,14 +79,13 @@ def _proximity_bonus(text: str, patterns: list[CompiledRule], window_words: int 
     }
 
 
-def analyze_content(
+def prepare_analysis_fields(
     original: str,
     title: str,
     visible: str,
     raw: str,
     links: list[str],
-    patterns: list[CompiledRule],
-) -> dict:
+) -> tuple[dict[str, str], dict[str, str]]:
     fields = {
         "url": original,
         "title": title,
@@ -93,6 +93,45 @@ def analyze_content(
         "source": raw[:500000],
         "links": "\n".join(links),
     }
+    return fields, {name: normalize_search(value) for name, value in fields.items()}
+
+
+def analyze_content(
+    original: str,
+    title: str,
+    visible: str,
+    raw: str,
+    links: list[str],
+    patterns: list[CompiledRule],
+    prefilter: KeywordPrefilter | None = None,
+    prepared_fields: dict[str, str] | None = None,
+    prepared_normalized_fields: dict[str, str] | None = None,
+) -> dict:
+    if prepared_fields is None or prepared_normalized_fields is None:
+        fields, normalized_fields = prepare_analysis_fields(original, title, visible, raw, links)
+    else:
+        fields = prepared_fields
+        normalized_fields = prepared_normalized_fields
+    if prefilter is not None and not prefilter.matches(fields, normalized_fields):
+        return {
+            "score": 0,
+            "hits": {},
+            "hit_fields": {},
+            "snippets": [],
+            "interesting_links": [],
+            "excluded": False,
+            "excluded_labels": [],
+            "required_missing": any(item.rule.kind == "required" for item in patterns),
+            "missing_required_labels": sorted({item.rule.label for item in patterns if item.rule.kind == "required"}),
+            "proximity": {
+                "window_words": 25,
+                "pairs": 0,
+                "minimum_distance": None,
+                "sentence_bonus": 0,
+                "paragraph_bonus": 0,
+                "score_bonus": 0,
+            },
+        }
     multipliers = {"url": 6.0, "title": 5.0, "body": 1.0, "source": 0.75, "links": 2.5}
     hits: Counter[str] = Counter()
     hit_fields: dict[str, set[str]] = {}
@@ -102,8 +141,9 @@ def analyze_content(
     required_labels = {item.rule.label for item in patterns if item.rule.kind == "required"}
 
     for field_name, value in fields.items():
+        normalized_value = normalized_fields[field_name]
         for item in patterns:
-            matches = _matches(item, value)
+            matches = _matches(item, value, normalized_value)
             count = len(matches)
             if not count:
                 continue

@@ -74,8 +74,8 @@ class RuntimeBundleTests(unittest.TestCase):
             user_agent="test",
             stop_event=threading.Event(),
         )
-        with patch("archive_scout.cdx.client.ensure_frozen_bundle_available"), patch(
-            "archive_scout.cdx.client.urllib.request.urlopen", side_effect=wrapped
+        with patch("archive_scout.cdx.client.ensure_frozen_bundle_available"), patch.object(
+            client.pool, "request", side_effect=wrapped
         ) as mocked:
             with self.assertRaises(FrozenBundleError):
                 client.get("https://example.com", 1024)

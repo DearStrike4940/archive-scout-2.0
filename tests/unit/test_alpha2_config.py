@@ -19,6 +19,10 @@ class Alpha2ConfigTests(unittest.TestCase):
                     KeywordSetConfig("Media", ["exact: skylight.mov"], False),
                 ],
                 retry_media_capture_ids=[7, 9],
+                rate_limit_base_pause=45,
+                rate_limit_max_pause=240,
+                rate_limit_max_wait=900,
+                rate_limit_attempts=10,
                 media=MediaConfig(
                     enabled=True,
                     targets=["media.example.com/*"],
@@ -36,6 +40,10 @@ class Alpha2ConfigTests(unittest.TestCase):
             self.assertIn(".mp4", loaded.media.include_extensions)
             self.assertIn(".gif", loaded.media.exclude_extensions)
             self.assertEqual(loaded.retry_media_capture_ids, [7, 9])
+            self.assertEqual(loaded.rate_limit_base_pause, 45)
+            self.assertEqual(loaded.rate_limit_max_pause, 240)
+            self.assertEqual(loaded.rate_limit_max_wait, 900)
+            self.assertEqual(loaded.rate_limit_attempts, 10)
 
 
 if __name__ == "__main__":

@@ -1,18 +1,16 @@
-Archive Scout 2.0.0-alpha.2.5 source validation
+Archive Scout 2.0.0-alpha.2.7 source validation
 
-Expected checks:
-- python -m compileall -q archive_scout scripts/verify_macos_bundle.py
-- python -m unittest discover -s tests -p "test_*.py" -v
-- Tkinter window creation under a desktop session
-- bash -n scripts/build_macos.sh
-- GitHub Actions Tests workflow on Windows, Linux, and macOS
-- GitHub Actions Build All Platforms workflow
-
-Local validation before packaging:
-- 38 tests passed
-- package and macOS verification script compiled successfully
-- Tkinter interface instantiated successfully in a virtual display
-- macOS build script passed shell syntax validation
+Completed locally before packaging:
+- 49 unit, migration, and integration tests passed
+- python -m compileall completed for archive_scout and tests
+- Tkinter interface instantiated successfully with all 9 tabs in a virtual display
 - workflow YAML files parsed successfully
-- macOS bundle verifier accepted a valid synthetic PyInstaller-style bundle
-- macOS bundle verifier rejected missing and broken runtime files in automated tests
+- Linux and macOS build scripts passed bash syntax validation
+- pooled HTTP redirect and gzip response reuse passed against a local HTTP server
+- repeated HTTP 429 handling, unlimited coordinated waiting, optional deferral, stale-permit rejection, and one-probe recovery passed automated tests
+- no live Internet Archive load or stress test was performed
+
+Still required on GitHub:
+- Tests workflow on Windows, Linux, and macOS
+- Build All Platforms workflow
+- smoke test each packaged application

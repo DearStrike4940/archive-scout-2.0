@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+from ..cdx.client import RateLimitDeferred
 from ..cdx.parameters import build_cdx_params, cdx_year_window
 from ..config import KeywordSetConfig, MediaConfig, ProjectConfig, load_project_config, save_project_config
 from ..constants import APP_NAME, CDX_URL, DEFAULT_IMAGE_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS, OPERATION_MODES, REVIEW_STATUSES, SCOPE_LABELS, VERSION
@@ -125,11 +126,14 @@ class ArchiveScoutApp(tk.Tk):
         self.collapse_urlkey_var = tk.BooleanVar(value=True)
         self.collapse_digest_var = tk.BooleanVar(value=False)
         self.page_size_var = tk.StringVar(value="5000")
-        self.workers_var = tk.StringVar(value=str(min(6, max(2, cpu_count))))
+        self.workers_var = tk.StringVar(value=str(min(4, max(2, cpu_count))))
         self.max_file_var = tk.StringVar(value="25")
         self.minimum_score_var = tk.StringVar(value="1")
-        self.cdx_delay_var = tk.StringVar(value="0.8")
-        self.download_delay_var = tk.StringVar(value="0.25")
+        self.cdx_delay_var = tk.StringVar(value="1.0")
+        self.download_delay_var = tk.StringVar(value="0.5")
+        self.rate_limit_base_var = tk.StringVar(value="30")
+        self.rate_limit_max_var = tk.StringVar(value="300")
+        self.rate_limit_wait_var = tk.StringVar(value="0")
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
         self.keyword_set_var = tk.StringVar()
@@ -332,13 +336,16 @@ class ArchiveScoutApp(tk.Tk):
             ("Minimum report score", self.minimum_score_var),
             ("CDX request delay (seconds)", self.cdx_delay_var),
             ("Download request delay (seconds)", self.download_delay_var),
+            ("429 base pause (seconds)", self.rate_limit_base_var),
+            ("429 maximum pause (seconds)", self.rate_limit_max_var),
+            ("429 wait budget per request (minutes; 0 = keep waiting)", self.rate_limit_wait_var),
         ]
         for row, (label, variable) in enumerate(rows):
             ttk.Label(tab, text=label + ":").grid(row=row, column=0, sticky="w", pady=5)
             ttk.Entry(tab, textvariable=variable, width=18).grid(row=row, column=1, sticky="w", padx=(12, 0), pady=5)
         ttk.Label(tab, text="Download scope:").grid(row=len(rows), column=0, sticky="w", pady=5)
         ttk.Combobox(tab, textvariable=self.scope_var, values=list(SCOPE_LABELS), state="readonly", width=42).grid(row=len(rows), column=1, sticky="w", padx=(12, 0), pady=5)
-        ttk.Label(tab, text="Worker count and request delays remain fixed for the entire run. Lower the worker count or increase the delays if the archive begins returning 429 or 5xx errors.", wraplength=760).grid(row=len(rows)+1, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        ttk.Label(tab, text="Worker count and request delays stay fixed. HTTP 429 closes a shared circuit: every worker pauses, one recovery probe tests Wayback after the wait, and the queue resumes only after that probe succeeds. A wait budget of 0 keeps waiting until you press Stop.", wraplength=760).grid(row=len(rows)+1, column=0, columnspan=2, sticky="w", pady=(12, 0))
 
     def create_results_tab(self) -> None:
         tab = ttk.Frame(self.notebook, padding=8)
@@ -605,6 +612,9 @@ class ArchiveScoutApp(tk.Tk):
                 max_file_mb=float(self.max_file_var.get()),
                 cdx_delay=float(self.cdx_delay_var.get()),
                 download_delay=float(self.download_delay_var.get()),
+                rate_limit_base_pause=float(self.rate_limit_base_var.get()),
+                rate_limit_max_pause=float(self.rate_limit_max_var.get()),
+                rate_limit_max_wait=float(self.rate_limit_wait_var.get()) * 60.0,
                 media=media,
             ).normalized()
         except (ValueError, KeyError) as exc:
@@ -674,6 +684,8 @@ class ArchiveScoutApp(tk.Tk):
     def run_worker(self, config: ProjectConfig, mode: str) -> None:
         try:
             self.events.put(("complete", run_project(config, mode, self.stop_event, self.on_engine_event)))
+        except RateLimitDeferred as exc:
+            self.events.put(("deferred", str(exc)))
         except Stopped:
             self.events.put(("stopped", None))
         except FrozenBundleError as exc:
@@ -719,6 +731,16 @@ class ArchiveScoutApp(tk.Tk):
                     self.progress.stop()
                     self.status_var.set("Stopped. Progress was saved.")
                     self.finish_run()
+                elif kind == "deferred":
+                    self.progress.stop()
+                    self.status_var.set("Paused by Wayback rate limiting. Progress was saved.")
+                    self.log(str(payload))
+                    self.finish_run()
+                    messagebox.showinfo(
+                        APP_NAME,
+                        "Wayback continued returning too many-request responses beyond the configured wait budget. "
+                        "Archive Scout saved the queue instead of marking it failed. Use Resume later.\n\n" + str(payload),
+                    )
                 elif kind == "error":
                     self.progress.stop()
                     self.status_var.set("Error")
@@ -1079,6 +1101,9 @@ class ArchiveScoutApp(tk.Tk):
         self.minimum_score_var.set(str(config.minimum_score))
         self.cdx_delay_var.set(str(config.cdx_delay))
         self.download_delay_var.set(str(config.download_delay))
+        self.rate_limit_base_var.set(str(config.rate_limit_base_pause))
+        self.rate_limit_max_var.set(str(config.rate_limit_max_pause))
+        self.rate_limit_wait_var.set(str(config.rate_limit_max_wait / 60.0))
         for label, value in SCOPE_LABELS.items():
             if value == config.download_scope:
                 self.scope_var.set(label)

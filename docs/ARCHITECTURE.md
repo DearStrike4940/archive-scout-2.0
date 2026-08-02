@@ -18,7 +18,7 @@ This separation allows one downloaded document to be rescanned many times withou
 
 ```text
 archive_scout/cdx          CDX requests and resumable indexing
-archive_scout/downloads    text downloading, retrying, and fixed request pacing
+archive_scout/downloads    pooled HTTP, shared server backpressure, text downloading, retrying, and fixed request pacing
 archive_scout/scanning     keyword parsing, scoring, snippets, rescanning, and FTS
 archive_scout/media        media selection, indexing, downloading, and reports
 archive_scout/database     schema, migration, and repository functions
@@ -29,4 +29,4 @@ archive_scout/ui           Tkinter desktop interface
 
 ## Concurrency
 
-Worker threads perform network requests while SQLite writes remain controlled by the main operation flow. Request pacing uses the worker count and delays chosen by the user and does not change them during a run.
+Worker threads perform network requests through one keep-alive connection pool while SQLite writes remain controlled by the main operation flow. Request pacing uses the worker count and delays chosen by the user and does not change them during a run. HTTP 429 responses trigger a shared host-wide pause, not a worker-count or delay mutation. Text and media queues keep only a bounded number of futures in flight.

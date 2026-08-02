@@ -9,7 +9,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Callable
 
-from ..cdx.client import HttpClient
+from ..cdx.client import HttpClient, RateLimitDeferred
 from ..cdx.parameters import cdx_query_signature
 from ..config import ProjectConfig
 from ..constants import REPLAY_URL
@@ -18,9 +18,9 @@ from ..database.repositories import record_error, resolve_errors, save_match, up
 from ..events import ProgressEvent, Stopped
 from ..scanning.jobs import ScanJob
 from ..scanning.keywords import keyword_url_match
-from ..scanning.scoring import analyze_content
+from ..scanning.scoring import analyze_content, prepare_analysis_fields
 from ..utils import atomic_write_text, hash_text, normalize_search, utc_now
-from .rate_limit import FixedRateLimiter
+from .rate_limit import FixedRateLimiter, SharedHostGate
 from .validation import classify_exception
 
 
@@ -90,8 +90,12 @@ def fetch_parse_scan(row: sqlite3.Row, config: ProjectConfig, jobs: list[ScanJob
     if replay_problem:
         raise RuntimeError(replay_problem)
     title, visible, links = parse_page(raw, original)
+    prepared_fields, prepared_normalized_fields = prepare_analysis_fields(original, title, visible, raw, links)
     analyses = {
-        job.scan_run_id: analyze_content(original, title, visible, raw, links, job.patterns)
+        job.scan_run_id: analyze_content(
+            original, title, visible, raw, links, job.patterns, job.prefilter,
+            prepared_fields, prepared_normalized_fields,
+        )
         for job in jobs
     }
     path = capture_path(config.output_dir, int(row["id"]), row["timestamp"], original)
@@ -160,16 +164,36 @@ def download_archive(
             callback(ProgressEvent("download", "No matching captures to download.", 0, 0))
         return
     limiter = FixedRateLimiter(config.download_delay)
+    host_gate = SharedHostGate(config.rate_limit_base_pause, config.rate_limit_max_pause)
+
+    def on_retry(attempt: int, total_attempts: int, reason: str, wait_seconds: float) -> None:
+        if callback:
+            rate_limited = "all Wayback requests paused" in reason
+            stage = "rate_limit" if rate_limited else "download_retry"
+            if rate_limited:
+                limit = f"/{total_attempts}" if total_attempts else ""
+                message = f"{reason}. Shared pause {attempt}{limit} for {wait_seconds:.1f}s; one recovery probe will run next…"
+            else:
+                message = f"{reason}. Retry {attempt}/{total_attempts} in {wait_seconds:.1f}s…"
+            callback(ProgressEvent(stage, message))
+
     client = HttpClient(
         limiter,
         config.retries,
         max(config.connect_timeout, config.read_timeout),
         config.user_agent,
         stop_event,
+        retry_callback=on_retry,
+        connect_timeout=config.connect_timeout,
+        read_timeout=config.read_timeout,
+        pool_size=config.workers,
+        host_gate=host_gate,
+        rate_limit_attempts=config.rate_limit_attempts,
+        rate_limit_max_wait=config.rate_limit_max_wait,
     )
     completed = matched = failures = 0
     started = time.monotonic()
-    max_inflight = max(config.workers, config.workers * 3)
+    max_inflight = max(config.workers, config.workers * 2)
     row_iter = iter(rows)
     with concurrent.futures.ThreadPoolExecutor(max_workers=config.workers, thread_name_prefix="archive-scout") as pool:
         futures: dict[concurrent.futures.Future, sqlite3.Row] = {}
@@ -207,6 +231,18 @@ def download_archive(
                         and not analysis.get("excluded") and not analysis.get("required_missing")
                         for analysis in result["analyses"].values()
                     ))
+                except RateLimitDeferred:
+                    stop_event.set()
+                    with database:
+                        database.execute(
+                            """UPDATE captures SET state='pending',
+                               download_attempts=CASE WHEN download_attempts>0 THEN download_attempts-1 ELSE 0 END,
+                               updated_at=? WHERE state='downloading' OR id=?""",
+                            (utc_now(), row["id"]),
+                        )
+                    for pending in futures:
+                        pending.cancel()
+                    raise
                 except Stopped:
                     with database:
                         database.execute("UPDATE captures SET state='pending',updated_at=? WHERE id=?", (utc_now(), row["id"]))
