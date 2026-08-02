@@ -32,7 +32,7 @@ from ..database.repositories import (
 )
 from ..defaults import PRESETS
 from ..downloads.downloader import replay_url
-from ..events import ProgressEvent, RateLimited, Stopped
+from ..events import ProgressEvent, Stopped
 from ..operations import run_project
 from ..reports.compare import generate_scan_comparison
 from ..reports.export import export_review_package, export_scan
@@ -130,7 +130,6 @@ class ArchiveScoutApp(tk.Tk):
         self.minimum_score_var = tk.StringVar(value="1")
         self.cdx_delay_var = tk.StringVar(value="0.8")
         self.download_delay_var = tk.StringVar(value="0.25")
-        self.adaptive_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
         self.keyword_set_var = tk.StringVar()
@@ -339,8 +338,7 @@ class ArchiveScoutApp(tk.Tk):
             ttk.Entry(tab, textvariable=variable, width=18).grid(row=row, column=1, sticky="w", padx=(12, 0), pady=5)
         ttk.Label(tab, text="Download scope:").grid(row=len(rows), column=0, sticky="w", pady=5)
         ttk.Combobox(tab, textvariable=self.scope_var, values=list(SCOPE_LABELS), state="readonly", width=42).grid(row=len(rows), column=1, sticky="w", padx=(12, 0), pady=5)
-        ttk.Checkbutton(tab, text="Automatically reduce request pressure after 429/502/503/504 responses", variable=self.adaptive_var).grid(row=len(rows)+1, column=0, columnspan=2, sticky="w", pady=(12, 0))
-        ttk.Label(tab, text="Four to eight workers is normally enough. Adaptive limiting reduces active concurrency when the archive begins throttling.", wraplength=760).grid(row=len(rows)+2, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        ttk.Label(tab, text="Worker count and request delays remain fixed for the entire run. Lower the worker count or increase the delays if the archive begins returning 429 or 5xx errors.", wraplength=760).grid(row=len(rows)+1, column=0, columnspan=2, sticky="w", pady=(12, 0))
 
     def create_results_tab(self) -> None:
         tab = ttk.Frame(self.notebook, padding=8)
@@ -607,7 +605,6 @@ class ArchiveScoutApp(tk.Tk):
                 max_file_mb=float(self.max_file_var.get()),
                 cdx_delay=float(self.cdx_delay_var.get()),
                 download_delay=float(self.download_delay_var.get()),
-                adaptive_rate_limit=self.adaptive_var.get(),
                 media=media,
             ).normalized()
         except (ValueError, KeyError) as exc:
@@ -679,8 +676,6 @@ class ArchiveScoutApp(tk.Tk):
             self.events.put(("complete", run_project(config, mode, self.stop_event, self.on_engine_event)))
         except Stopped:
             self.events.put(("stopped", None))
-        except RateLimited as exc:
-            self.events.put(("error", f"{exc}\n\nProgress is saved. Resume later with the same project."))
         except FrozenBundleError as exc:
             self.events.put(("error", str(exc)))
         except Exception:
@@ -1084,7 +1079,6 @@ class ArchiveScoutApp(tk.Tk):
         self.minimum_score_var.set(str(config.minimum_score))
         self.cdx_delay_var.set(str(config.cdx_delay))
         self.download_delay_var.set(str(config.download_delay))
-        self.adaptive_var.set(config.adaptive_rate_limit)
         for label, value in SCOPE_LABELS.items():
             if value == config.download_scope:
                 self.scope_var.set(label)

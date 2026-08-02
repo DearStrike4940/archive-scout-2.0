@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from archive_scout.cdx.client import HttpClient
-from archive_scout.downloads.rate_limit import AdaptiveRateLimiter
+from archive_scout.downloads.rate_limit import FixedRateLimiter
 
 from archive_scout.runtime import (
     FrozenBundleError,
@@ -68,7 +68,7 @@ class RuntimeBundleTests(unittest.TestCase):
         missing = FileNotFoundError(2, "No such file", "/tmp/App.app/Contents/Frameworks/base_library.zip")
         wrapped = urllib.error.URLError(missing)
         client = HttpClient(
-            AdaptiveRateLimiter(0),
+            FixedRateLimiter(0),
             retries=3,
             timeout=1,
             user_agent="test",

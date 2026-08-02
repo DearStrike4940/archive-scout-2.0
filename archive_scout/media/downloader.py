@@ -15,9 +15,9 @@ from ..cdx.client import HttpClient
 from ..config import ProjectConfig
 from ..database.repositories import record_error, save_media_success
 from ..downloads.downloader import replay_url
-from ..downloads.rate_limit import AdaptiveRateLimiter
+from ..downloads.rate_limit import FixedRateLimiter
 from ..downloads.validation import classify_exception
-from ..events import ProgressEvent, RateLimited, Stopped
+from ..events import ProgressEvent, Stopped
 from ..utils import utc_now
 from .indexer import media_query_signature
 
@@ -92,7 +92,7 @@ def download_media(
         if callback:
             callback(ProgressEvent("media_download", "No media captures to download.", 0, 0))
         return
-    limiter = AdaptiveRateLimiter(config.download_delay, config.workers, config.adaptive_rate_limit)
+    limiter = FixedRateLimiter(config.download_delay)
     client = HttpClient(limiter, config.retries, max(config.connect_timeout, config.read_timeout), config.user_agent, stop_event)
     complete = errors = 0
     started = time.monotonic()
@@ -131,16 +131,14 @@ def download_media(
                         database, "media_download", category, repr(exc), media_capture_id=int(row["id"]),
                         http_status=status, retryable=retryable
                     )
-                if isinstance(exc, RateLimited):
-                    raise
             complete += 1
             elapsed = max(0.001, time.monotonic() - started)
             if callback:
                 callback(ProgressEvent(
                     "media_download",
-                    f"Media {complete:,}/{total:,}; errors {errors:,}; {complete/elapsed:.1f}/s; active limit {limiter.current_limit}",
+                    f"Media {complete:,}/{total:,}; errors {errors:,}; {complete/elapsed:.1f}/s",
                     complete, total,
-                    {"errors": errors, "active_limit": limiter.current_limit},
+                    {"errors": errors},
                 ))
 
 

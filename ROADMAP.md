@@ -22,7 +22,7 @@ Completed in this repository:
 - Multiple named keyword sets in one pass
 - Instant offline full-text search
 - Scan history and comparison
-- Adaptive rate limiting
+- Predictable fixed request pacing and clearer throttling guidance
 - Better error controls
 - Image/video indexing and downloading
 - Extension inclusion and exclusion

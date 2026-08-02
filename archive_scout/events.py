@@ -7,10 +7,6 @@ class Stopped(RuntimeError):
     pass
 
 
-class RateLimited(RuntimeError):
-    pass
-
-
 @dataclass(slots=True)
 class ProgressEvent:
     stage: str

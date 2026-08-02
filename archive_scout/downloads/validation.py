@@ -3,13 +3,12 @@ from __future__ import annotations
 import re
 import urllib.error
 
-from ..events import RateLimited
 
 
 def classify_exception(exc: Exception) -> tuple[str, int | None, bool]:
     message = str(exc).casefold()
     status = None
-    if isinstance(exc, RateLimited) or "429" in message or "rate limit" in message:
+    if "429" in message or "rate limit" in message:
         return "rate_limit", 429, True
     match = re.search(r"http\s+(\d{3})", message)
     if match:

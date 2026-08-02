@@ -13,8 +13,8 @@ from email.utils import parsedate_to_datetime
 from typing import Callable
 
 from ..constants import RETRYABLE_STATUS
-from ..downloads.rate_limit import AdaptiveRateLimiter
-from ..events import RateLimited, Stopped
+from ..downloads.rate_limit import FixedRateLimiter
+from ..events import Stopped
 from ..runtime import FrozenBundleError, ensure_frozen_bundle_available, frozen_bundle_error_from_exception, is_missing_frozen_bundle_error
 from ..utils import clean_space
 
@@ -57,7 +57,7 @@ def is_timeout_error(exc: BaseException) -> bool:
 class HttpClient:
     def __init__(
         self,
-        limiter: AdaptiveRateLimiter,
+        limiter: FixedRateLimiter,
         retries: int,
         timeout: float,
         user_agent: str,
@@ -114,17 +114,13 @@ class HttpClient:
                             "headers": dict(response.headers.items()),
                             "final_url": response.geturl(),
                         }
-                self.limiter.record_success()
                 return result
             except urllib.error.HTTPError as exc:
                 last_error = exc
                 retry_after = parse_retry_after(exc.headers.get("Retry-After"))
-                self.limiter.record_failure(exc.code, retry_after)
                 if exc.code not in RETRYABLE_STATUS:
                     raise RuntimeError(f"HTTP {exc.code}: {url}") from exc
                 if attempt + 1 == self.retries:
-                    if exc.code == 429:
-                        raise RateLimited(f"repeated HTTP 429 for {url}") from exc
                     raise TransientRequestError(
                         f"HTTP {exc.code} after {self.retries} attempts: {url}",
                         status=exc.code,
@@ -136,7 +132,6 @@ class HttpClient:
                     raise frozen_bundle_error_from_exception(exc) from exc
                 last_error = exc
                 timed_out = is_timeout_error(exc)
-                self.limiter.record_failure(None, None)
                 if attempt + 1 == self.retries:
                     raise TransientRequestError(
                         f"network failure for {url}: {exc}",

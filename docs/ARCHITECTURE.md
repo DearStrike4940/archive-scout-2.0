@@ -18,7 +18,7 @@ This separation allows one downloaded document to be rescanned many times withou
 
 ```text
 archive_scout/cdx          CDX requests and resumable indexing
-archive_scout/downloads    text downloading, retrying, and adaptive limiting
+archive_scout/downloads    text downloading, retrying, and fixed request pacing
 archive_scout/scanning     keyword parsing, scoring, snippets, rescanning, and FTS
 archive_scout/media        media selection, indexing, downloading, and reports
 archive_scout/database     schema, migration, and repository functions
@@ -29,4 +29,4 @@ archive_scout/ui           Tkinter desktop interface
 
 ## Concurrency
 
-Worker threads perform network requests while SQLite writes remain controlled by the main operation flow. The adaptive limiter maintains a dynamic active-worker ceiling and applies cooldowns after throttling responses.
+Worker threads perform network requests while SQLite writes remain controlled by the main operation flow. Request pacing uses the worker count and delays chosen by the user and does not change them during a run.

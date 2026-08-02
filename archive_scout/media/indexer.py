@@ -14,7 +14,7 @@ from ..cdx.parameters import parse_cdx
 from ..config import ProjectConfig
 from ..constants import CDX_URL
 from ..database.repositories import get_or_create_media_target, record_error, upsert_media_capture, upsert_media_captures
-from ..downloads.rate_limit import AdaptiveRateLimiter
+from ..downloads.rate_limit import FixedRateLimiter
 from ..events import ProgressEvent, Stopped
 from ..utils import json_value, parse_cdx_parameter_lines, utc_now
 from .extensions import allowed_media_url, media_kind, selected_extensions
@@ -393,7 +393,7 @@ def index_media(
     if not selected_extensions(media):
         raise ValueError("no image or video extensions remain after include/exclude filtering")
     signature = media_query_signature(config)
-    limiter = AdaptiveRateLimiter(config.cdx_delay, 1, config.adaptive_rate_limit)
+    limiter = FixedRateLimiter(config.cdx_delay)
     def on_retry(attempt: int, total: int, reason: str, wait_seconds: float) -> None:
         if callback:
             callback(

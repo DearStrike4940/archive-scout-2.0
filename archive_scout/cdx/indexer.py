@@ -12,8 +12,8 @@ from typing import Callable
 from ..config import ProjectConfig
 from ..constants import CDX_URL
 from ..database.repositories import get_or_create_target, record_error, upsert_captures
-from ..downloads.rate_limit import SharedRateLimiter
-from ..events import ProgressEvent, RateLimited, Stopped
+from ..downloads.rate_limit import FixedRateLimiter
+from ..events import ProgressEvent, Stopped
 from ..utils import utc_now
 from .client import HttpClient, TransientRequestError
 from .parameters import build_cdx_params, cdx_query_signature, parse_cdx
@@ -199,7 +199,7 @@ def index_archive(
     stop_event: threading.Event,
     callback: Callable[[ProgressEvent], None] | None = None,
 ) -> None:
-    limiter = SharedRateLimiter(config.cdx_delay, 1, config.adaptive_rate_limit)
+    limiter = FixedRateLimiter(config.cdx_delay)
 
     def on_retry(attempt: int, total: int, reason: str, wait_seconds: float) -> None:
         emit(
@@ -395,7 +395,7 @@ def index_archive(
                         ),
                     )
                     continue
-                category = "rate_limit" if isinstance(exc, RateLimited) else "index_failure"
+                category = "index_failure"
                 message = f"{target} {label}: {type(exc).__name__}: {exc}"
                 with database:
                     error_id = record_error(database, "index", category, message, retryable=True)
@@ -420,7 +420,7 @@ def index_archive(
                 )
                 raise
             except Exception as exc:
-                category = "rate_limit" if isinstance(exc, RateLimited) else "index_failure"
+                category = "index_failure"
                 message = f"{target} {label}: {type(exc).__name__}: {exc}"
                 with database:
                     error_id = record_error(database, "index", category, message, retryable=True)

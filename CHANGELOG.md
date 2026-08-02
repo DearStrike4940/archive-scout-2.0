@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.0-alpha.2.6
+
+- Removed adaptive rate limiting, dynamic worker reduction, automatic cooldowns, penalty multipliers, and gradual worker recovery
+- Replaced adaptive request control with fixed user-selected worker counts and fixed CDX/download delays
+- Changed repeated HTTP 429 responses into per-request retryable errors instead of aborting the entire download queue
+- Removed the adaptive-rate-limit setting from the interface and new project files
+- Kept compatibility with older project files that still contain the unused `adaptive_rate_limit` field
+- Simplified progress messages so they no longer report a changing active-worker limit or effective delay
+- Retained adaptive CDX date-window splitting because it handles oversized index queries rather than changing request speed
+- Added regression tests confirming that the limiter has no adaptive state or failure feedback loop
+
 ## 2.0.0-alpha.2.5
 
 - Removed `hdiutil` from the macOS release pipeline after both direct and writable-image DMG workflows repeatedly failed with `Resource busy` on the hosted runner

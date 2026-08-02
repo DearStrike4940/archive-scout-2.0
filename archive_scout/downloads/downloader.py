@@ -15,12 +15,12 @@ from ..config import ProjectConfig
 from ..constants import REPLAY_URL
 from ..content import classify_replay_content, decode_bytes, is_text_candidate, looks_textual_bytes, parse_page
 from ..database.repositories import record_error, resolve_errors, save_match, upsert_document
-from ..events import ProgressEvent, RateLimited, Stopped
+from ..events import ProgressEvent, Stopped
 from ..scanning.jobs import ScanJob
 from ..scanning.keywords import keyword_url_match
 from ..scanning.scoring import analyze_content
 from ..utils import atomic_write_text, hash_text, normalize_search, utc_now
-from .rate_limit import AdaptiveRateLimiter
+from .rate_limit import FixedRateLimiter
 from .validation import classify_exception
 
 
@@ -159,7 +159,7 @@ def download_archive(
         if callback:
             callback(ProgressEvent("download", "No matching captures to download.", 0, 0))
         return
-    limiter = AdaptiveRateLimiter(config.download_delay, config.workers, config.adaptive_rate_limit)
+    limiter = FixedRateLimiter(config.download_delay)
     client = HttpClient(
         limiter,
         config.retries,
@@ -231,10 +231,6 @@ def download_archive(
                             http_status=status,
                             retryable=retryable,
                         )
-                    if isinstance(exc, RateLimited):
-                        for pending in futures:
-                            pending.cancel()
-                        raise
                 completed += 1
                 elapsed = max(0.001, time.monotonic() - started)
                 rate = completed / elapsed
@@ -243,15 +239,13 @@ def download_archive(
                         ProgressEvent(
                             "download",
                             f"Downloaded/scanned {completed:,}/{total:,}; matches {matched:,}; errors {failures:,}; "
-                            f"{rate:.1f}/s; active limit {limiter.current_limit}",
+                            f"{rate:.1f}/s",
                             completed,
                             total,
                             {
                                 "matched": matched,
                                 "failures": failures,
                                 "rate": rate,
-                                "active_limit": limiter.current_limit,
-                                "effective_delay": limiter.effective_delay,
                             },
                         )
                     )
